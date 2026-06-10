@@ -1,0 +1,12 @@
+flowchart TD
+    A[User] --> B[React Frontend]
+    B --> C[FastAPI Backend]
+    C --> D[Input Validation]
+    D --> E[Requirement Pre-processing]
+    E --> F[LLM / Mock Analysis Service]
+    F --> G[Structured Result]
+    G --> H[User Review]
+    H --> I{Accept / Modify / Reject}
+    I --> J[SQLite Storage]
+    J --> K[History Dashboard]
+    K --> L[Evaluation]
