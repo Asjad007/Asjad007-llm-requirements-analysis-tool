@@ -4,13 +4,43 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import AnalysisResult, Requirement, UserReview
 from app.schemas import AnalysisResponse, RequirementCreate, ReviewCreate, ReviewResponse
-from app.services.mock_analysis_service import analyse_requirement
+from app.config import settings
+
+from app.services.mock_analysis_service import analyse_requirement as mock_analyse
+from app.services.llm_service import generate_analysis
+
+import json
 
 router = APIRouter(prefix="/api/analysis", tags=["Analysis"])
 
 
+def parse_llm_output(raw_output: str):
+    """
+    Ensures LLM response is converted to dict safely.
+    """
+    try:
+        return json.loads(raw_output)
+    except Exception:
+        # fallback if model returns non-JSON
+        return {
+            "requirement_type": "Unknown",
+            "ambiguity_status": "Unknown",
+            "ambiguity_explanation": raw_output,
+            "priority_level": "Medium",
+            "priority_reason": "Auto fallback parsing",
+            "acceptance_criteria": "",
+            "test_case": "",
+            "improvement_suggestion": "",
+            "confidence_score": 0.5,
+            "analysis_method": "Fallback parser",
+            "literature_basis": "N/A"
+        }
+
+
 @router.post("/analyse", response_model=AnalysisResponse)
 def analyse_requirement_endpoint(payload: RequirementCreate, db: Session = Depends(get_db)):
+    
+    # 1. Save requirement
     requirement = Requirement(
         requirement_text=payload.requirement_text,
         source_type=payload.source_type
@@ -19,17 +49,23 @@ def analyse_requirement_endpoint(payload: RequirementCreate, db: Session = Depen
     db.commit()
     db.refresh(requirement)
 
-    analysis_output = analyse_requirement(payload.requirement_text)
+    # 2. Choose analysis mode (IMPORTANT FIX)
+    if settings.USE_MOCK_LLM:
+        analysis_output = mock_analyse(payload.requirement_text)
+    else:
+        raw_output = generate_analysis(payload.requirement_text)
+        analysis_output = parse_llm_output(raw_output)
 
+    # 3. Store analysis result
     analysis_result = AnalysisResult(
         requirement_id=requirement.id,
-        requirement_type=analysis_output["requirement_type"],
-        ambiguity_status=analysis_output["ambiguity_status"],
-        ambiguity_explanation=analysis_output["ambiguity_explanation"],
-        priority_level=analysis_output["priority_level"],
-        priority_reason=analysis_output["priority_reason"],
-        acceptance_criteria=analysis_output["acceptance_criteria"],
-        test_case=analysis_output["test_case"],
+        requirement_type=analysis_output.get("requirement_type"),
+        ambiguity_status=analysis_output.get("ambiguity_status"),
+        ambiguity_explanation=analysis_output.get("ambiguity_explanation"),
+        priority_level=analysis_output.get("priority_level"),
+        priority_reason=analysis_output.get("priority_reason"),
+        acceptance_criteria=analysis_output.get("acceptance_criteria"),
+        test_case=analysis_output.get("test_case"),
         improvement_suggestion=analysis_output.get("improvement_suggestion"),
         confidence_score=analysis_output.get("confidence_score"),
         analysis_method=analysis_output.get("analysis_method"),
@@ -40,6 +76,7 @@ def analyse_requirement_endpoint(payload: RequirementCreate, db: Session = Depen
     db.commit()
     db.refresh(analysis_result)
 
+    # 4. Return response
     return AnalysisResponse(
         analysis_id=analysis_result.id,
         requirement_id=requirement.id,
@@ -65,7 +102,9 @@ def review_analysis_result(
     payload: ReviewCreate,
     db: Session = Depends(get_db)
 ):
-    analysis_result = db.query(AnalysisResult).filter(AnalysisResult.id == analysis_id).first()
+    analysis_result = db.query(AnalysisResult).filter(
+        AnalysisResult.id == analysis_id
+    ).first()
 
     if not analysis_result:
         raise HTTPException(status_code=404, detail="Analysis result not found")
