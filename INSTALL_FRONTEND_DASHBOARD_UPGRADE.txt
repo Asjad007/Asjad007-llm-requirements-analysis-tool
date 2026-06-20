@@ -1,0 +1,24 @@
+FRONTEND MODULAR DASHBOARD UPGRADE
+
+Copy the 'frontend' folder from this ZIP into:
+C:\Users\Home\Downloads\LLM-AssistedRequirementsAnalysisTool_MVP\LLM-AssistedRequirementsAnalysisTool\repo_push
+
+When Windows asks to replace existing files, click Replace.
+
+Run backend:
+cd C:\Users\Home\Downloads\LLM-AssistedRequirementsAnalysisTool_MVP\LLM-AssistedRequirementsAnalysisTool\repo_push\backend
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
+
+Run frontend:
+cd C:\Users\Home\Downloads\LLM-AssistedRequirementsAnalysisTool_MVP\LLM-AssistedRequirementsAnalysisTool\repo_push\frontend
+npm install
+npm run dev
+
+Open:
+http://localhost:5173
+
+Commit:
+cd C:\Users\Home\Downloads\LLM-AssistedRequirementsAnalysisTool_MVP\LLM-AssistedRequirementsAnalysisTool\repo_push
+git add frontend
+git commit -m "Redesign frontend with modular dissertation dashboard"
+git push origin main

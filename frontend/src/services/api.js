@@ -16,12 +16,8 @@ export async function analyseRequirement(requirementText) {
   const response = await fetch(`${API_BASE_URL}/analysis/analyse`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      requirement_text: requirementText,
-      source_type: 'manual'
-    })
+    body: JSON.stringify({ requirement_text: requirementText, source_type: 'manual' })
   });
-
   return handleResponse(response);
 }
 
@@ -31,7 +27,6 @@ export async function submitReview(analysisId, reviewData) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(reviewData)
   });
-
   return handleResponse(response);
 }
 
@@ -41,9 +36,6 @@ export async function getHistory() {
 }
 
 export async function deleteHistoryItem(analysisId) {
-  const response = await fetch(`${API_BASE_URL}/history/${analysisId}`, {
-    method: 'DELETE'
-  });
-
+  const response = await fetch(`${API_BASE_URL}/history/${analysisId}`, { method: 'DELETE' });
   return handleResponse(response);
 }
