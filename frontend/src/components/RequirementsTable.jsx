@@ -1,75 +1,152 @@
-import { deleteHistoryItem } from '../services/api';
-
-function decisionLabel(value) {
-  if (!value) return 'Pending';
-  if (value === 'accept') return 'Reviewed';
-  if (value === 'modify') return 'Modified';
-  if (value === 'reject') return 'Rejected';
-  return value;
+function formatReqId(id) {
+  return `REQ-${String(id).padStart(3, "0")}`;
 }
 
-function decisionClass(value) {
-  if (!value) return 'warning';
-  if (value === 'accept') return 'success';
-  if (value === 'modify') return 'warning';
-  if (value === 'reject') return 'danger';
-  return 'neutral';
+function badgeClass(value) {
+  if (!value) return "badge badge-orange";
+
+  const normalised = value.toLowerCase();
+
+  if (normalised.includes("modified")) return "badge badge-orange";
+  if (normalised.includes("reviewed")) return "badge badge-green";
+  if (normalised.includes("rejected")) return "badge badge-red";
+  if (normalised.includes("pending")) return "badge badge-orange";
+
+  if (normalised.includes("high")) return "badge badge-red";
+  if (normalised.includes("medium")) return "badge badge-orange";
+  if (normalised.includes("low")) return "badge badge-green";
+
+  if (normalised.includes("clear")) return "badge badge-green";
+  if (normalised.includes("ambiguous")) return "badge badge-orange";
+
+  if (normalised.includes("functional")) return "badge badge-blue";
+  if (normalised.includes("non")) return "badge badge-purple";
+
+  return "badge";
 }
 
-function formatConfidence(value) {
-  if (value === null || value === undefined) return 'N/A';
-  const number = Number(value);
-  if (Number.isNaN(number)) return 'N/A';
-  return `${Math.round(number * 100)}%`;
-}
-
-export default function RequirementsTable({ history = [], compact = false, onRefresh }) {
-  async function handleDelete(analysisId) {
-    const confirmed = window.confirm('Delete this analysis record?');
-    if (!confirmed) return;
-    await deleteHistoryItem(analysisId);
-    if (onRefresh) onRefresh();
-  }
-
+export default function RequirementsTable({ history = [], onRefresh }) {
   if (!history.length) {
-    return (
-      <div className="empty-state">
-        <h3>No analysed requirements yet</h3>
-        <p>Analyse a requirement first. It will appear in this professional repository table.</p>
-      </div>
-    );
+    return <p className="empty">No requirement records found.</p>;
   }
-
-  const rows = compact ? history.slice(0, 5) : history;
 
   return (
-    <div className="table-wrap">
-      <table className="requirements-table">
+    <div className="table-wrapper">
+      <table className="data-table history-table">
         <thead>
           <tr>
             <th>ID</th>
             <th>Requirement</th>
-            <th>Type</th>
-            <th>Priority</th>
-            <th>Ambiguity</th>
+            <th>Before Analysis</th>
+            <th>Human Review / Version Link</th>
+            <th>After Modification</th>
             <th>Confidence</th>
-            <th>Status</th>
-            {!compact && <th>Action</th>}
           </tr>
         </thead>
+
         <tbody>
-          {rows.map((item) => (
-            <tr key={item.analysis_id}>
-              <td>REQ-{String(item.analysis_id).padStart(3, '0')}</td>
-              <td className="requirement-cell">{item.original_text}</td>
-              <td><span className="badge info">{item.requirement_type}</span></td>
-              <td><span className={`badge ${String(item.priority_level).toLowerCase()}`}>{item.priority_level}</span></td>
-              <td><span className={`badge ${String(item.ambiguity_status).toLowerCase().includes('ambiguous') ? 'warning' : 'success'}`}>{item.ambiguity_status}</span></td>
-              <td>{formatConfidence(item.confidence_score)}</td>
-              <td><span className={`badge ${decisionClass(item.review_decision)}`}>{decisionLabel(item.review_decision)}</span></td>
-              {!compact && <td><button className="danger-button" onClick={() => handleDelete(item.analysis_id)}>Delete</button></td>}
-            </tr>
-          ))}
+          {history.map((item) => {
+            const isModified = item.review_decision === "Modified";
+            const modifiedTarget = item.modified_into_analysis_id
+              ? formatReqId(item.modified_into_analysis_id)
+              : null;
+
+            return (
+              <tr key={item.analysis_id}>
+                <td>
+                  <strong>{formatReqId(item.analysis_id)}</strong>
+                </td>
+
+                <td className="requirement-cell">
+                  <div>{item.original_text}</div>
+
+                  {item.improvement_suggestion && (
+                    <div className="history-subtext">
+                      Suggestion: {item.improvement_suggestion}
+                    </div>
+                  )}
+                </td>
+
+                <td>
+                  <div className="history-stack">
+                    <span className={badgeClass(item.requirement_type)}>
+                      {item.requirement_type}
+                    </span>
+                    <span className={badgeClass(item.priority_level)}>
+                      {item.priority_level}
+                    </span>
+                    <span className={badgeClass(item.ambiguity_status)}>
+                      {item.ambiguity_status}
+                    </span>
+                  </div>
+                </td>
+
+                <td>
+                  <div className="history-stack">
+                    <span className={badgeClass(item.review_decision || "Pending")}>
+                      {item.review_decision || "Pending"}
+                    </span>
+
+                    {isModified && modifiedTarget && (
+                      <div className="version-link">
+                        {formatReqId(item.analysis_id)} → {modifiedTarget}
+                      </div>
+                    )}
+
+                    {isModified && !modifiedTarget && (
+                      <div className="version-link muted">
+                        Modified version created
+                      </div>
+                    )}
+
+                    {item.review_notes && (
+                      <div className="history-notes">
+                        {item.review_notes}
+                      </div>
+                    )}
+                  </div>
+                </td>
+
+                <td>
+                  {isModified ? (
+                    <div className="history-stack">
+                      {item.modified_requirement_type && (
+                        <span className={badgeClass(item.modified_requirement_type)}>
+                          {item.modified_requirement_type}
+                        </span>
+                      )}
+
+                      {item.modified_priority && (
+                        <span className={badgeClass(item.modified_priority)}>
+                          {item.modified_priority}
+                        </span>
+                      )}
+
+                      {item.modified_acceptance_criteria && (
+                        <div className="history-subtext">
+                          <strong>Updated AC:</strong> {item.modified_acceptance_criteria}
+                        </div>
+                      )}
+
+                      {item.modified_test_case && (
+                        <div className="history-subtext">
+                          <strong>Updated Test:</strong> {item.modified_test_case}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="history-subtext">No human modification</span>
+                  )}
+                </td>
+
+                <td>
+                  {item.confidence_score !== null && item.confidence_score !== undefined
+                    ? `${Math.round(item.confidence_score * 100)}%`
+                    : "N/A"}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

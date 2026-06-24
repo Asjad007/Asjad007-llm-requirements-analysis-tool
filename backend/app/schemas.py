@@ -53,4 +53,16 @@ class HistoryItem(BaseModel):
     confidence_score: Optional[float] = None
     improvement_suggestion: Optional[str] = None
     review_decision: Optional[str] = None
+
+    # Human review / version tracking fields
+    review_notes: Optional[str] = None
+    modified_requirement_type: Optional[str] = None
+    modified_priority: Optional[str] = None
+    modified_acceptance_criteria: Optional[str] = None
+    modified_test_case: Optional[str] = None
+    modified_into_analysis_id: Optional[int] = None
+
     created_at: datetime
+
+    class Config:
+        from_attributes = True
