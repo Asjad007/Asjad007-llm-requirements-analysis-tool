@@ -21,10 +21,6 @@ REQUIRED_FIELDS = {
 
 
 def _normalise_result(data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Ensures the LLM output always contains every field expected by the API,
-    database, and frontend.
-    """
     if not isinstance(data, dict):
         data = {}
 
@@ -52,7 +48,8 @@ def generate_analysis(requirement_text: str) -> Dict[str, Any]:
     if not api_key:
         return _normalise_result({
             "analysis_method": "OpenAI configuration error",
-            "literature_basis": "OPENAI_API_KEY is missing. Check backend/.env."
+            "literature_basis": "OPENAI_API_KEY is missing. Check backend/.env.",
+            "ambiguity_explanation": "OpenAI API key is missing, so fallback analysis was used."
         })
 
     client = OpenAI(api_key=api_key)
