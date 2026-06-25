@@ -6,7 +6,8 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
-from app.models import AnalysisResult, Requirement, UserReview
+from app.models import AnalysisResult, Project, Requirement, UserReview
+from app.review_status import REVIEW_STATUSES, normalize_review_status_or_raise
 from app.schemas import AnalysisResponse, RequirementCreate, ReviewCreate, ReviewResponse
 from app.services.mock_analysis_service import analyse_requirement as mock_analyse
 from app.services.llm_service import generate_analysis
@@ -16,7 +17,7 @@ router = APIRouter(prefix="/api/analysis", tags=["Analysis"])
 
 class ModifyReanalyseRequest(BaseModel):
     modified_requirement_text: str
-    review_notes: Optional[str] = None
+    reviewer_notes: Optional[str] = None
 
 
 def split_requirements(text: str) -> List[str]:
@@ -50,17 +51,19 @@ def split_requirements(text: str) -> List[str]:
     return requirements
 
 
-def run_llm_or_mock(requirement_text: str):
+def run_llm_or_mock(requirement_text: str, project_context: dict | None = None):
     if settings.USE_MOCK_LLM:
         return mock_analyse(requirement_text)
 
-    return generate_analysis(requirement_text)
+    return generate_analysis(requirement_text, project_context)
 
 
 def build_analysis_response(requirement: Requirement, analysis_result: AnalysisResult) -> AnalysisResponse:
     return AnalysisResponse(
         analysis_id=analysis_result.id,
         requirement_id=requirement.id,
+        project_id=requirement.project_id,
+        project_name=requirement.project.name if requirement.project else None,
         original_text=requirement.requirement_text,
         requirement_type=analysis_result.requirement_type,
         ambiguity_status=analysis_result.ambiguity_status,
@@ -80,9 +83,11 @@ def build_analysis_response(requirement: Requirement, analysis_result: AnalysisR
 def analyse_and_save_requirement(
     requirement_text: str,
     source_type: str,
+    project: Project,
     db: Session
 ) -> AnalysisResponse:
     requirement = Requirement(
+        project_id=project.id,
         requirement_text=requirement_text.strip(),
         source_type=source_type
     )
@@ -91,7 +96,15 @@ def analyse_and_save_requirement(
     db.commit()
     db.refresh(requirement)
 
-    analysis_output = run_llm_or_mock(requirement.requirement_text)
+    analysis_output = run_llm_or_mock(
+        requirement.requirement_text,
+        {
+            "id": project.id,
+            "name": project.name,
+            "description": project.description,
+            "domain_system_type": project.domain_system_type,
+        },
+    )
 
     analysis_result = AnalysisResult(
         requirement_id=requirement.id,
@@ -120,9 +133,15 @@ def analyse_requirement_endpoint(
     payload: RequirementCreate,
     db: Session = Depends(get_db)
 ):
+    project = db.query(Project).filter(Project.id == payload.project_id).first()
+
+    if not project:
+        raise HTTPException(status_code=404, detail="Selected project not found")
+
     return analyse_and_save_requirement(
         requirement_text=payload.requirement_text,
         source_type=payload.source_type,
+        project=project,
         db=db
     )
 
@@ -137,12 +156,18 @@ def analyse_batch_requirements(
     if not detected_requirements:
         raise HTTPException(status_code=400, detail="No valid requirements found")
 
+    project = db.query(Project).filter(Project.id == payload.project_id).first()
+
+    if not project:
+        raise HTTPException(status_code=404, detail="Selected project not found")
+
     results = []
 
     for requirement_text in detected_requirements:
         result = analyse_and_save_requirement(
             requirement_text=requirement_text,
             source_type=payload.source_type,
+            project=project,
             db=db
         )
         results.append(result)
@@ -168,31 +193,37 @@ def modify_and_reanalyse_requirement(
     if not payload.modified_requirement_text or not payload.modified_requirement_text.strip():
         raise HTTPException(status_code=400, detail="Modified requirement text cannot be empty")
 
+    if not original_analysis.requirement or not original_analysis.requirement.project:
+        raise HTTPException(status_code=400, detail="Original requirement is not linked to a project")
+
     modified_response = analyse_and_save_requirement(
         requirement_text=payload.modified_requirement_text.strip(),
         source_type="human_modified",
+        project=original_analysis.requirement.project,
         db=db
     )
 
-    human_note = payload.review_notes.strip() if payload.review_notes else ""
-
-    version_note = (
-        f"Human modified original REQ-{str(analysis_id).zfill(3)} "
-        f"and generated updated analysis REQ-{str(modified_response.analysis_id).zfill(3)}."
-    )
-
-    combined_review_notes = (
-        f"{human_note}\n{version_note}" if human_note else version_note
+    modified_analysis = (
+        db.query(AnalysisResult)
+        .filter(AnalysisResult.id == modified_response.analysis_id)
+        .first()
     )
 
     review = UserReview(
+        requirement_id=original_analysis.requirement_id,
         analysis_result_id=analysis_id,
-        decision="Modified",
-        modified_requirement_type=modified_response.requirement_type,
-        modified_priority=modified_response.priority_level,
-        modified_acceptance_criteria=modified_response.acceptance_criteria,
-        modified_test_case=modified_response.test_case,
-        review_notes=combined_review_notes
+        refined_analysis_result_id=modified_response.analysis_id,
+        decision=REVIEW_STATUSES["MODIFIED"],
+        reviewer_notes=payload.reviewer_notes.strip() if payload.reviewer_notes else None,
+        review_notes=payload.reviewer_notes.strip() if payload.reviewer_notes else None,
+        modified_requirement_type=modified_analysis.requirement_type,
+        modified_priority=modified_analysis.priority_level,
+        modified_acceptance_criteria=modified_analysis.acceptance_criteria,
+        modified_test_case=modified_analysis.test_case,
+        **build_final_review_fields(
+            payload.modified_requirement_text.strip(),
+            modified_analysis,
+        )
     )
 
     db.add(review)
@@ -217,14 +248,43 @@ def review_analysis_result(
     if not analysis_result:
         raise HTTPException(status_code=404, detail="Analysis result not found")
 
+    normalised_decision = normalize_review_status_or_raise(payload.decision)
+
+    if normalised_decision == REVIEW_STATUSES["REJECTED"] and not (payload.rejection_reason and payload.rejection_reason.strip()):
+        raise HTTPException(status_code=400, detail="Rejection reason is required")
+
+    final_fields = {}
+
+    if normalised_decision == REVIEW_STATUSES["ACCEPTED"]:
+        final_fields = build_final_review_fields(
+            analysis_result.requirement.requirement_text if analysis_result.requirement else "",
+            analysis_result,
+        )
+    elif normalised_decision == REVIEW_STATUSES["MODIFIED"]:
+        if not payload.final_refined_requirement or not payload.final_refined_requirement.strip():
+            raise HTTPException(status_code=400, detail="Final refined requirement is required for modified reviews")
+
+        final_fields = {
+            "final_refined_requirement": payload.final_refined_requirement.strip(),
+            "final_type": payload.final_type,
+            "final_priority": payload.final_priority,
+            "final_ambiguity_status": payload.final_ambiguity_status,
+            "final_acceptance_criteria": payload.final_acceptance_criteria,
+            "final_test_cases": payload.final_test_cases,
+        }
+
     review = UserReview(
+        requirement_id=analysis_result.requirement_id,
         analysis_result_id=analysis_id,
-        decision=payload.decision,
-        modified_requirement_type=payload.modified_requirement_type,
-        modified_priority=payload.modified_priority,
-        modified_acceptance_criteria=payload.modified_acceptance_criteria,
-        modified_test_case=payload.modified_test_case,
-        review_notes=payload.review_notes
+        decision=normalised_decision,
+        reviewer_notes=payload.reviewer_notes.strip() if payload.reviewer_notes else None,
+        review_notes=payload.reviewer_notes.strip() if payload.reviewer_notes else None,
+        rejection_reason=payload.rejection_reason.strip() if payload.rejection_reason else None,
+        modified_requirement_type=final_fields.get("final_type"),
+        modified_priority=final_fields.get("final_priority"),
+        modified_acceptance_criteria=final_fields.get("final_acceptance_criteria"),
+        modified_test_case=final_fields.get("final_test_cases"),
+        **final_fields
     )
 
     db.add(review)
@@ -233,7 +293,29 @@ def review_analysis_result(
 
     return ReviewResponse(
         review_id=review.id,
+        requirement_id=review.requirement_id,
         analysis_result_id=review.analysis_result_id,
-        decision=review.decision,
-        reviewed_at=review.reviewed_at
+        decision=normalised_decision,
+        final_refined_requirement=review.final_refined_requirement,
+        final_type=review.final_type,
+        final_priority=review.final_priority,
+        final_ambiguity_status=review.final_ambiguity_status,
+        final_acceptance_criteria=review.final_acceptance_criteria,
+        final_test_cases=review.final_test_cases,
+        reviewer_notes=review.reviewer_notes,
+        rejection_reason=review.rejection_reason,
+        reviewed_at=review.reviewed_at,
+        created_at=review.created_at,
+        updated_at=review.updated_at
     )
+
+
+def build_final_review_fields(requirement_text: str, analysis_result: AnalysisResult):
+    return {
+        "final_refined_requirement": requirement_text,
+        "final_type": analysis_result.requirement_type,
+        "final_priority": analysis_result.priority_level,
+        "final_ambiguity_status": analysis_result.ambiguity_status,
+        "final_acceptance_criteria": analysis_result.acceptance_criteria,
+        "final_test_cases": analysis_result.test_case,
+    }

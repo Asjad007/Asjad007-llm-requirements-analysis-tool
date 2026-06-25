@@ -1,26 +1,27 @@
-const menuSections = [
+﻿const menuSections = [
   { title: 'Main', items: [
-    { key: 'dashboard', label: 'Dashboard', icon: '⌂' },
-    { key: 'requirements', label: 'Requirements', icon: '▤' },
-    { key: 'upload', label: 'Upload Requirements', icon: '⇧' }
+    { key: 'dashboard', label: 'Dashboard', icon: 'D' },
+    { key: 'projects', label: 'Projects', icon: 'P' },
+    { key: 'requirements', label: 'Requirements', icon: 'R' },
+    { key: 'upload', label: 'Upload Requirements', icon: 'U' }
   ]},
   { title: 'Analysis', items: [
-    { key: 'classification', label: 'Classification', icon: '◇' },
-    { key: 'prioritisation', label: 'Prioritisation', icon: '◎' },
+    { key: 'classification', label: 'Classification', icon: 'C' },
+    { key: 'prioritisation', label: 'Prioritisation', icon: 'P' },
     { key: 'ambiguity', label: 'Ambiguity Detection', icon: '!' },
-    { key: 'acceptance', label: 'Acceptance Criteria', icon: '☑' },
-    { key: 'testcases', label: 'Test Case Generation', icon: '✕' }
+    { key: 'acceptance', label: 'Acceptance Criteria', icon: 'A' },
+    { key: 'testcases', label: 'Test Case Generation', icon: 'T' }
   ]},
   { title: 'Reviews', items: [
-    { key: 'validation', label: 'Human Validation', icon: '✓' },
-    { key: 'history', label: 'Review History', icon: '↺' }
+    { key: 'validation', label: 'Human Validation', icon: 'V' },
+    { key: 'history', label: 'Review History', icon: 'H' }
   ]},
   { title: 'Evaluation', items: [
-    { key: 'evaluation', label: 'Evaluation Metrics', icon: '▥' },
-    { key: 'reports', label: 'Reports', icon: '◫' }
+    { key: 'evaluation', label: 'Evaluation Metrics', icon: 'E' },
+    { key: 'reports', label: 'Reports', icon: 'Rp' }
   ]},
   { title: 'Other', items: [
-    { key: 'settings', label: 'Settings', icon: '⚙' }
+    { key: 'settings', label: 'Settings', icon: 'S' }
   ]}
 ];
 
@@ -28,7 +29,6 @@ export default function Sidebar({ activePage, onNavigate }) {
   return (
     <aside className="sidebar">
       <div className="brand">
-        <div className="brand-icon">AI</div>
         <div>
           <h1>LLM-RE</h1>
           <p>Requirements Analysis Tool</p>

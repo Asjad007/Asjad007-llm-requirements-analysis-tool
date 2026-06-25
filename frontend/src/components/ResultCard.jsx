@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { submitReview } from '../services/api';
+import { REVIEW_STATUSES } from '../utils/reviewStatuses';
 
 function formatConfidence(value) {
   if (value === null || value === undefined) return 'N/A';
@@ -64,9 +65,9 @@ export default function ResultCard({ result, onReviewSaved }) {
         <label htmlFor="reviewNotes">Review Notes</label>
         <textarea id="reviewNotes" value={reviewNotes} onChange={(event) => setReviewNotes(event.target.value)} placeholder="Optional notes about the review decision" />
         <div className="button-row">
-          <button className="primary-button" disabled={isSaving} onClick={() => handleReview('accept')}>Accept</button>
-          <button className="secondary-button" disabled={isSaving} onClick={() => handleReview('modify')}>Modify</button>
-          <button className="danger-button" disabled={isSaving} onClick={() => handleReview('reject')}>Reject</button>
+          <button className="primary-button" disabled={isSaving} onClick={() => handleReview(REVIEW_STATUSES.ACCEPTED)}>Accept</button>
+          <button className="secondary-button" disabled={isSaving} onClick={() => handleReview(REVIEW_STATUSES.MODIFIED)}>Modify</button>
+          <button className="danger-button" disabled={isSaving} onClick={() => handleReview(REVIEW_STATUSES.REJECTED)}>Reject</button>
         </div>
       </div>
       {message && <div className="success-message">{message}</div>}

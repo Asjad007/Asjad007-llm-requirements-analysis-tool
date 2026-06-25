@@ -1,3 +1,9 @@
+import {
+  REVIEW_STATUSES,
+  getReviewStatusBadgeClass,
+  normalizeReviewStatus,
+} from "../utils/reviewStatuses";
+
 function formatReqId(id) {
   return `REQ-${String(id).padStart(3, "0")}`;
 }
@@ -7,10 +13,9 @@ function badgeClass(value) {
 
   const normalised = value.toLowerCase();
 
-  if (normalised.includes("modified")) return "badge badge-orange";
-  if (normalised.includes("reviewed")) return "badge badge-green";
-  if (normalised.includes("rejected")) return "badge badge-red";
-  if (normalised.includes("pending")) return "badge badge-orange";
+  if (["pending", "reviewed", "approved", "accept", "accepted", "modify", "modified", "reject", "rejected"].includes(normalised)) {
+    return getReviewStatusBadgeClass(value);
+  }
 
   if (normalised.includes("high")) return "badge badge-red";
   if (normalised.includes("medium")) return "badge badge-orange";
@@ -47,7 +52,8 @@ function HistoryTable({ items, onDelete }) {
 
         <tbody>
           {items.map((item) => {
-            const isModified = item.review_decision === "Modified";
+            const reviewDecision = normalizeReviewStatus(item.review_decision);
+            const isModified = reviewDecision === REVIEW_STATUSES.MODIFIED;
             const modifiedTarget = item.modified_into_analysis_id
               ? formatReqId(item.modified_into_analysis_id)
               : null;
@@ -84,8 +90,8 @@ function HistoryTable({ items, onDelete }) {
 
                 <td>
                   <div className="history-stack">
-                    <span className={badgeClass(item.review_decision || "Pending")}>
-                      {item.review_decision || "Pending"}
+                    <span className={badgeClass(reviewDecision)}>
+                      {reviewDecision}
                     </span>
 
                     {isModified && modifiedTarget && (

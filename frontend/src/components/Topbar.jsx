@@ -5,15 +5,10 @@ export default function Topbar({ title, onRefresh }) {
         <button className="icon-button" aria-label="Open navigation">☰</button>
         <h2>{title}</h2>
       </div>
-      <div className="search-box">
-        <span>⌕</span>
-        <input placeholder="Search requirements, modules..." />
-        <kbd>Ctrl + K</kbd>
-      </div>
       <div className="topbar-actions">
-        <button className="ghost-button" onClick={onRefresh}>Refresh</button>
-        <button className="icon-button">◐</button>
-        <button className="notification-button">🔔<span>3</span></button>
+        {/* <button className="ghost-button" onClick={onRefresh}>Refresh</button> */}
+        {/* <button className="icon-button">◐</button> */}
+        {/* <button className="notification-button">🔔<span>3</span></button> */}
         <div className="user-chip">
           <div className="avatar">AA</div>
           <div>

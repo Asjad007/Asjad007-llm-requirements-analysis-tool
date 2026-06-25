@@ -1,15 +1,22 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { analyseBatchRequirements, reviewAnalysis, modifyAndReanalyse } from "../services/api";
+import AppDataTable from "../components/AppDataTable";
+import GlobalLoader from "../components/GlobalLoader";
+import {
+  REVIEW_STATUSES,
+  getReviewStatusBadgeClass,
+  normalizeReviewStatus,
+} from "../utils/reviewStatuses";
 
 function badgeClass(value) {
   if (!value) return "badge";
 
   const normalised = value.toLowerCase();
 
-  if (normalised.includes("rejected")) return "badge badge-red";
-  if (normalised.includes("reviewed")) return "badge badge-green";
-  if (normalised.includes("modified")) return "badge badge-orange";
-  if (normalised.includes("pending")) return "badge badge-orange";
+  if (["pending", "reviewed", "approved", "accept", "accepted", "modify", "modified", "reject", "rejected"].includes(normalised)) {
+    return getReviewStatusBadgeClass(value);
+  }
+
   if (normalised.includes("high")) return "badge badge-red";
   if (normalised.includes("medium")) return "badge badge-orange";
   if (normalised.includes("low")) return "badge badge-green";
@@ -21,8 +28,34 @@ function badgeClass(value) {
   return "badge";
 }
 
-function RequirementDetailModal({ item, onClose, onReview, onOpenModify }) {
+function LoadingLabel({ loading, idleText, loadingText }) {
+  return (
+    <>
+      {loading && <span className="button-spinner" aria-hidden="true" />}
+      <span>{loading ? loadingText : idleText}</span>
+    </>
+  );
+}
+
+function Toast({ toast, onClose }) {
+  if (!toast) return null;
+
+  return (
+    <div className={`toast-message ${toast.type}`} role="status" aria-live="polite">
+      <span>{toast.message}</span>
+      <button className="toast-close" onClick={onClose} aria-label="Close notification">
+        ×
+      </button>
+    </div>
+  );
+}
+
+function RequirementDetailModal({ item, onClose, onReview, onOpenModify, actionLoading }) {
   if (!item) return null;
+
+  const isReviewing = actionLoading.type === "review" && actionLoading.analysisId === item.analysis_id;
+  const isPreparingModify = actionLoading.type === "open-modify" && actionLoading.analysisId === item.analysis_id;
+  const hasPendingAction = isReviewing || isPreparingModify;
 
   return (
     <div className="modal-backdrop">
@@ -90,14 +123,26 @@ function RequirementDetailModal({ item, onClose, onReview, onOpenModify }) {
         </div>
 
         <div className="modal-actions">
-          <button className="success-button" onClick={() => onReview(item.analysis_id, "Reviewed")}>
-            Accept
+          <button
+            className="success-button"
+            disabled={hasPendingAction}
+            onClick={() => onReview(item.analysis_id, REVIEW_STATUSES.ACCEPTED)}
+          >
+            <LoadingLabel loading={isReviewing} idleText="Accept" loadingText="Saving..." />
           </button>
-          <button className="warning-button" onClick={() => onOpenModify(item)}>
-            Modify & Reanalyse
+          <button
+            className="warning-button"
+            disabled={hasPendingAction}
+            onClick={() => onOpenModify(item)}
+          >
+            <LoadingLabel loading={isPreparingModify} idleText="Modify & Reanalyse" loadingText="Opening..." />
           </button>
-          <button className="danger-button" onClick={() => onReview(item.analysis_id, "Rejected")}>
-            Reject
+          <button
+            className="danger-button"
+            disabled={hasPendingAction}
+            onClick={() => onReview(item.analysis_id, REVIEW_STATUSES.REJECTED)}
+          >
+            <LoadingLabel loading={isReviewing} idleText="Reject" loadingText="Saving..." />
           </button>
         </div>
       </div>
@@ -151,7 +196,7 @@ function ModifyModal({ item, onClose, onSubmit, loading }) {
             onClick={() =>
               onSubmit(item.analysis_id, {
                 modified_requirement_text: modifiedText,
-                review_notes: notes || "Human modified and re-analysed the requirement.",
+                reviewer_notes: notes || "Human modified and re-analysed the requirement.",
               })
             }
           >
@@ -166,18 +211,104 @@ function ModifyModal({ item, onClose, onSubmit, loading }) {
   );
 }
 
-export default function Analyse() {
+function RejectModal({ item, loading, onClose, onSubmit }) {
+  const [reason, setReason] = useState("");
+
+  useEffect(() => {
+    setReason("");
+  }, [item]);
+
+  if (!item) return null;
+
+  return (
+    <div className="modal-backdrop">
+      <div className="detail-modal">
+        <div className="modal-header">
+          <div>
+            <h2>Reject Requirement</h2>
+            <p>Please provide a reason for rejecting this output.</p>
+          </div>
+          <button className="ghost-button" onClick={onClose}>Close</button>
+        </div>
+
+        <div className="detail-section">
+          <h4>Requirement</h4>
+          <p>{item.original_text}</p>
+        </div>
+
+        <label className="form-label">Rejection Reason</label>
+        <textarea
+          className="review-notes-textarea"
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+          placeholder="Explain why this LLM output is being rejected."
+        />
+
+        <div className="modal-actions">
+          <button
+            className="danger-button"
+            disabled={loading}
+            onClick={() => onSubmit(item.analysis_id, reason)}
+          >
+            {loading ? "Saving..." : "Confirm Reject"}
+          </button>
+          <button className="secondary-button" onClick={onClose}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function Analyse({ projects = [], selectedProjectId = "", onProjectChange = () => {} }) {
   const [requirementText, setRequirementText] = useState("");
   const [results, setResults] = useState([]);
   const [selectedResult, setSelectedResult] = useState(null);
   const [modifyTarget, setModifyTarget] = useState(null);
+  const [rejectTarget, setRejectTarget] = useState(null);
   const [loading, setLoading] = useState(false);
   const [modifyLoading, setModifyLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState({ type: null, analysisId: null });
   const [statusMessage, setStatusMessage] = useState("");
+  const [toast, setToast] = useState(null);
+  const pageLoading =
+    loading ||
+    modifyLoading ||
+    (actionLoading.type === "review" && actionLoading.analysisId !== null);
+
+  let pageLoadingTitle = "";
+  let pageLoadingMessage = "";
+
+  if (loading) {
+    pageLoadingTitle = "Analysing requirements";
+    pageLoadingMessage = "Please wait while the system splits and evaluates each requirement.";
+  } else if (modifyLoading) {
+    pageLoadingTitle = "Re-analysing requirement";
+    pageLoadingMessage = "We are saving your update and generating a fresh analysis result.";
+  } else if (actionLoading.type === "review" && actionLoading.analysisId !== null) {
+    pageLoadingTitle = "Saving review";
+    pageLoadingMessage = `Updating REQ-${String(actionLoading.analysisId).padStart(3, "0")} with your decision.`;
+  }
+
+  useEffect(() => {
+    if (!toast) return undefined;
+
+    const timeoutId = window.setTimeout(() => {
+      setToast(null);
+    }, 3500);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [toast]);
 
   async function handleAnalyse() {
     if (!requirementText.trim()) {
       setStatusMessage("Please enter at least one requirement.");
+      return;
+    }
+
+    if (!selectedProjectId) {
+      setStatusMessage("Please select a project before analysing requirements.");
       return;
     }
 
@@ -188,6 +319,7 @@ export default function Analyse() {
       const response = await analyseBatchRequirements({
         requirement_text: requirementText,
         source_type: "manual",
+        project_id: Number(selectedProjectId),
       });
 
       setResults(response);
@@ -199,32 +331,60 @@ export default function Analyse() {
     }
   }
 
-  async function handleReview(analysisId, decision) {
+  async function handleReview(analysisId, decision, options = {}) {
+    setActionLoading({ type: "review", analysisId });
+
     try {
       await reviewAnalysis(analysisId, {
         decision,
-        modified_requirement_type: null,
-        modified_priority: null,
-        modified_acceptance_criteria: null,
-        modified_test_case: null,
-        review_notes: `Decision recorded from batch analysis grid: ${decision}`,
+        reviewer_notes: options.reviewerNotes || `Decision recorded from batch analysis grid: ${decision}`,
+        rejection_reason: options.rejectionReason || null,
       });
 
       setResults((previous) =>
         previous.map((item) =>
           item.analysis_id === analysisId
-            ? { ...item, review_decision: decision }
+            ? {
+                ...item,
+                review_decision: decision,
+                review_notes: options.reviewerNotes || `Decision recorded from batch analysis grid: ${decision}`,
+                reviewer_notes: options.reviewerNotes || `Decision recorded from batch analysis grid: ${decision}`,
+                rejection_reason: options.rejectionReason || null,
+                final_refined_requirement: decision === REVIEW_STATUSES.ACCEPTED ? item.original_text : null,
+                final_type: decision === REVIEW_STATUSES.ACCEPTED ? item.requirement_type : null,
+                final_priority: decision === REVIEW_STATUSES.ACCEPTED ? item.priority_level : null,
+                final_ambiguity_status: decision === REVIEW_STATUSES.ACCEPTED ? item.ambiguity_status : null,
+                final_acceptance_criteria: decision === REVIEW_STATUSES.ACCEPTED ? item.acceptance_criteria : null,
+                final_test_cases: decision === REVIEW_STATUSES.ACCEPTED ? item.test_case : null,
+              }
             : item
         )
       );
 
       if (selectedResult?.analysis_id === analysisId) {
-        setSelectedResult((previous) => ({ ...previous, review_decision: decision }));
+        setSelectedResult((previous) => ({
+          ...previous,
+          review_decision: decision,
+          review_notes: options.reviewerNotes || `Decision recorded from batch analysis grid: ${decision}`,
+          reviewer_notes: options.reviewerNotes || `Decision recorded from batch analysis grid: ${decision}`,
+          rejection_reason: options.rejectionReason || null,
+        }));
       }
 
-      setStatusMessage(`Requirement REQ-${String(analysisId).padStart(3, "0")} marked as ${decision}.`);
+      const successMessage = `Requirement REQ-${String(analysisId).padStart(3, "0")} marked as ${decision}.`;
+      setStatusMessage(successMessage);
+      setToast({
+        type: decision === REVIEW_STATUSES.REJECTED ? "rejected" : "success",
+        message: successMessage,
+      });
+      setSelectedResult(null);
+      setRejectTarget(null);
     } catch (error) {
-      setStatusMessage(`Review failed: ${error.message}`);
+      const errorMessage = `Review failed: ${error.message}`;
+      setStatusMessage(errorMessage);
+      setToast({ type: "error", message: errorMessage });
+    } finally {
+      setActionLoading({ type: null, analysisId: null });
     }
   }
 
@@ -244,8 +404,17 @@ export default function Analyse() {
           item.analysis_id === analysisId
             ? {
                 ...item,
-                review_decision: "Modified",
+                review_decision: REVIEW_STATUSES.MODIFIED,
                 modified_result: updatedResult,
+                review_notes: payload.reviewer_notes || "Human modified and re-analysed the requirement.",
+                reviewer_notes: payload.reviewer_notes || "Human modified and re-analysed the requirement.",
+                final_refined_requirement: payload.modified_requirement_text,
+                final_type: updatedResult.requirement_type,
+                final_priority: updatedResult.priority_level,
+                final_ambiguity_status: updatedResult.ambiguity_status,
+                final_acceptance_criteria: updatedResult.acceptance_criteria,
+                final_test_cases: updatedResult.test_case,
+                modified_into_analysis_id: updatedResult.analysis_id,
               }
             : item
         )
@@ -254,20 +423,150 @@ export default function Analyse() {
       setResults((previous) => [updatedResult, ...previous]);
 
       setModifyTarget(null);
-      setSelectedResult(updatedResult);
-      setStatusMessage(
-        `Requirement REQ-${String(analysisId).padStart(3, "0")} was modified and re-analysed as REQ-${String(updatedResult.analysis_id).padStart(3, "0")}.`
-      );
+      setSelectedResult(null);
+      const successMessage = `Requirement REQ-${String(analysisId).padStart(3, "0")} was modified and re-analysed as REQ-${String(updatedResult.analysis_id).padStart(3, "0")}.`;
+      setStatusMessage(successMessage);
+      setToast({ type: "success", message: successMessage });
     } catch (error) {
-      setStatusMessage(`Modify and reanalyse failed: ${error.message}`);
+      const errorMessage = `Modify and reanalyse failed: ${error.message}`;
+      setStatusMessage(errorMessage);
+      setToast({ type: "error", message: errorMessage });
     } finally {
       setModifyLoading(false);
     }
   }
 
+  function handleOpenModify(item) {
+    setActionLoading({ type: "open-modify", analysisId: item.analysis_id });
+    setModifyTarget(item);
+    setActionLoading({ type: null, analysisId: null });
+  }
+
+  const resultColumns = [
+    {
+      key: "analysis_id",
+      header: "ID",
+      width: "8%",
+      searchValue: (item) => `REQ-${String(item.analysis_id).padStart(3, "0")}`,
+      exportValue: (item) => `REQ-${String(item.analysis_id).padStart(3, "0")}`,
+      render: (item) => `REQ-${String(item.analysis_id).padStart(3, "0")}`,
+    },
+    {
+      key: "original_text",
+      header: "Requirement",
+      width: "28%",
+      cellClassName: "requirement-cell",
+      searchValue: (item) => `${item.original_text || ""} ${normalizeReviewStatus(item.review_decision)}`,
+      render: (item) => (
+        <>
+          <div>{item.original_text}</div>
+          {normalizeReviewStatus(item.review_decision) === REVIEW_STATUSES.MODIFIED && (
+            <div className="small-muted-text">
+              Human-modified version generated separately.
+            </div>
+          )}
+        </>
+      ),
+    },
+    {
+      key: "requirement_type",
+      header: "Type",
+      width: "10%",
+      searchValue: (item) => item.requirement_type || "",
+      render: (item) => <span className={badgeClass(item.requirement_type)}>{item.requirement_type}</span>,
+    },
+    {
+      key: "priority_level",
+      header: "Priority",
+      width: "10%",
+      searchValue: (item) => item.priority_level || "",
+      render: (item) => <span className={badgeClass(item.priority_level)}>{item.priority_level}</span>,
+    },
+    {
+      key: "ambiguity_status",
+      header: "Ambiguity",
+      width: "12%",
+      searchValue: (item) => item.ambiguity_status || "",
+      render: (item) => <span className={badgeClass(item.ambiguity_status)}>{item.ambiguity_status}</span>,
+    },
+    {
+      key: "confidence_score",
+      header: "Confidence",
+      width: "8%",
+      searchValue: (item) => `${Math.round((item.confidence_score || 0) * 100)}%`,
+      render: (item) => `${Math.round((item.confidence_score || 0) * 100)}%`,
+    },
+    {
+      key: "review_decision",
+      header: "Status",
+      width: "10%",
+      searchValue: (item) => normalizeReviewStatus(item.review_decision),
+      render: (item) => (
+        <span className={badgeClass(item.review_decision || REVIEW_STATUSES.PENDING)}>
+          {normalizeReviewStatus(item.review_decision)}
+        </span>
+      ),
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      width: "18%",
+      cellClassName: "table-actions",
+      searchValue: () => "View Accept Modify Reject",
+      render: (item) => (
+        <div className="table-actions">
+          <button className="small-button" onClick={() => setSelectedResult(item)}>
+            View
+          </button>
+          <button
+            className="small-success-button"
+            disabled={actionLoading.analysisId === item.analysis_id || modifyLoading}
+            onClick={() => handleReview(item.analysis_id, REVIEW_STATUSES.ACCEPTED)}
+          >
+            <LoadingLabel
+              loading={actionLoading.type === "review" && actionLoading.analysisId === item.analysis_id}
+              idleText="Accept"
+              loadingText="Saving..."
+            />
+          </button>
+          <button
+            className="small-warning-button"
+            disabled={actionLoading.analysisId === item.analysis_id || modifyLoading}
+            onClick={() => handleOpenModify(item)}
+          >
+            <LoadingLabel
+              loading={actionLoading.type === "open-modify" && actionLoading.analysisId === item.analysis_id}
+              idleText="Modify"
+              loadingText="Opening..."
+            />
+          </button>
+          <button
+            className="small-danger-button"
+            disabled={actionLoading.analysisId === item.analysis_id || modifyLoading}
+            onClick={() => setRejectTarget(item)}
+          >
+            <LoadingLabel
+              loading={actionLoading.type === "review" && actionLoading.analysisId === item.analysis_id}
+              idleText="Reject"
+              loadingText="Saving..."
+            />
+          </button>
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div className="page">
-      <div className="page-card">
+      <Toast toast={toast} onClose={() => setToast(null)} />
+
+      <GlobalLoader
+        visible={pageLoading}
+        title={pageLoadingTitle}
+        message={pageLoadingMessage}
+      />
+
+      <div className="page-card data-page-card">
         <div className="page-card-header">
           <div>
             <h1>Upload Requirements</h1>
@@ -279,6 +578,25 @@ export default function Analyse() {
           <span className="badge badge-blue">Batch Input</span>
         </div>
 
+        <label className="form-label">Project</label>
+        <div className="project-selector-row">
+          <select
+            className="project-select"
+            value={selectedProjectId}
+            onChange={(event) => onProjectChange(event.target.value)}
+          >
+            <option value="">Select a project</option>
+            {projects.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.name}
+              </option>
+            ))}
+          </select>
+          {!projects.length && (
+            <span className="small-muted-text">Create a project first to analyse requirements in context.</span>
+          )}
+        </div>
+
         <textarea
           className="requirement-textarea"
           value={requirementText}
@@ -287,11 +605,12 @@ export default function Analyse() {
         />
 
         <div className="form-actions">
-          <button className="primary-button" onClick={handleAnalyse} disabled={loading}>
-            {loading ? "Analysing..." : "Analyse Requirements"}
+          <button className="primary-button" onClick={handleAnalyse} disabled={loading || !projects.length}>
+            <LoadingLabel loading={loading} idleText="Analyse Requirements" loadingText="Analysing..." />
           </button>
           <button
             className="secondary-button"
+            disabled={loading || modifyLoading}
             onClick={() => {
               setRequirementText("");
               setResults([]);
@@ -306,7 +625,7 @@ export default function Analyse() {
       </div>
 
       {results.length > 0 && (
-        <div className="page-card">
+        <div className="page-card data-page-card">
           <div className="page-card-header">
             <div>
               <h2>Batch Analysis Results</h2>
@@ -318,68 +637,35 @@ export default function Analyse() {
             <span className="badge badge-green">{results.length} Results</span>
           </div>
 
-          <div className="table-wrapper">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Requirement</th>
-                  <th>Type</th>
-                  <th>Priority</th>
-                  <th>Ambiguity</th>
-                  <th>Confidence</th>
-                  <th>Status</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {results.map((item) => (
-                  <tr key={item.analysis_id}>
-                    <td>REQ-{String(item.analysis_id).padStart(3, "0")}</td>
-                    <td>
-                      {item.original_text}
-                      {item.review_decision === "Modified" && (
-                        <div className="small-muted-text">
-                          Human-modified version generated separately.
-                        </div>
-                      )}
-                    </td>
-                    <td><span className={badgeClass(item.requirement_type)}>{item.requirement_type}</span></td>
-                    <td><span className={badgeClass(item.priority_level)}>{item.priority_level}</span></td>
-                    <td><span className={badgeClass(item.ambiguity_status)}>{item.ambiguity_status}</span></td>
-                    <td>{Math.round((item.confidence_score || 0) * 100)}%</td>
-                    <td>
-                      <span className={badgeClass(item.review_decision || "Pending")}>
-                        {item.review_decision || "Pending"}
-                      </span>
-                    </td>
-                    <td className="table-actions">
-                      <button className="small-button" onClick={() => setSelectedResult(item)}>
-                        View
-                      </button>
-                      <button className="small-success-button" onClick={() => handleReview(item.analysis_id, "Reviewed")}>
-                        Accept
-                      </button>
-                      <button className="small-warning-button" onClick={() => setModifyTarget(item)}>
-                        Modify
-                      </button>
-                      <button className="small-danger-button" onClick={() => handleReview(item.analysis_id, "Rejected")}>
-                        Reject
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <AppDataTable
+            columns={resultColumns}
+            rows={results}
+            rowKey={(item) => item.analysis_id}
+            onRefresh={handleAnalyse}
+            searchPlaceholder="Search analysed requirements..."
+            emptyMessage="No analysis results found."
+            footerLabel="results"
+            tableClassName="analysis-results-table"
+            containerClassName="analysis-results-table-shell"
+            bodyHeight="min(62vh, 720px)"
+          />
         </div>
       )}
 
       <RequirementDetailModal
         item={selectedResult}
         onClose={() => setSelectedResult(null)}
-        onReview={handleReview}
-        onOpenModify={setModifyTarget}
+        onReview={(analysisId, decision) => {
+          if (decision === REVIEW_STATUSES.REJECTED) {
+            const target = results.find((item) => item.analysis_id === analysisId) || selectedResult;
+            setRejectTarget(target);
+            return;
+          }
+
+          handleReview(analysisId, decision);
+        }}
+        onOpenModify={handleOpenModify}
+        actionLoading={actionLoading}
       />
 
       <ModifyModal
@@ -387,6 +673,15 @@ export default function Analyse() {
         onClose={() => setModifyTarget(null)}
         onSubmit={handleModifyAndReanalyse}
         loading={modifyLoading}
+      />
+
+      <RejectModal
+        item={rejectTarget}
+        loading={actionLoading.type === "review" && actionLoading.analysisId === rejectTarget?.analysis_id}
+        onClose={() => setRejectTarget(null)}
+        onSubmit={(analysisId, rejectionReason) =>
+          handleReview(analysisId, REVIEW_STATUSES.REJECTED, { rejectionReason })
+        }
       />
     </div>
   );
