@@ -1,3 +1,5 @@
+import { REVIEW_STATUSES, normalizeReviewStatus } from "../utils/reviewStatuses";
+
 export default function ActivityFeed({ history = [] }) {
   const latest = history.slice(0, 4);
   return (
@@ -13,7 +15,12 @@ export default function ActivityFeed({ history = [] }) {
             <div className="activity-icon">✓</div>
             <div>
               <strong>REQ-{String(item.analysis_id).padStart(3, '0')}</strong>
-              <p>{item.review_decision ? `Marked as ${item.review_decision}` : 'Analysis generated'}</p>
+              {item.project_name && <p>{item.project_name}</p>}
+              <p>
+                {normalizeReviewStatus(item.review_decision || REVIEW_STATUSES.PENDING) === REVIEW_STATUSES.PENDING
+                  ? 'Marked as Pending'
+                  : `Marked as ${normalizeReviewStatus(item.review_decision)}`}
+              </p>
               <small>{new Date(item.created_at).toLocaleString()}</small>
             </div>
           </div>

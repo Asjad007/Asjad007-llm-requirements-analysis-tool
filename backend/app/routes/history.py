@@ -1,55 +1,71 @@
-import re
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import AnalysisResult, Requirement, UserReview
+from app.review_status import normalize_review_status
 from app.schemas import HistoryItem
 
 router = APIRouter(prefix="/api/history", tags=["History"])
-
-
-def extract_modified_into_id(review_notes):
-    """
-    Extracts the generated updated analysis ID from review notes.
-    Example note:
-    Human modified original REQ-026 and generated updated analysis REQ-027.
-    """
-    if not review_notes:
-        return None
-
-    matches = re.findall(r"REQ-(\d+)", review_notes)
-
-    if len(matches) >= 2:
-        try:
-            return int(matches[-1])
-        except ValueError:
-            return None
-
-    return None
+logger = logging.getLogger(__name__)
 
 
 def build_history_item(result, latest_review):
+    review_decision = normalize_review_status(latest_review.decision if latest_review else None)
+    reviewer_notes = None
+    final_type = None
+    final_priority = None
+    final_acceptance_criteria = None
+    final_test_cases = None
+
+    if latest_review:
+        reviewer_notes = latest_review.reviewer_notes or latest_review.review_notes
+        final_type = latest_review.final_type or latest_review.modified_requirement_type
+        final_priority = latest_review.final_priority or latest_review.modified_priority
+        final_acceptance_criteria = latest_review.final_acceptance_criteria or latest_review.modified_acceptance_criteria
+        final_test_cases = latest_review.final_test_cases or latest_review.modified_test_case
+
     return HistoryItem(
         analysis_id=result.id,
         requirement_id=result.requirement_id,
+        project_id=result.requirement.project_id if result.requirement else None,
+        project_name=result.requirement.project.name if result.requirement and result.requirement.project else None,
         original_text=result.requirement.requirement_text if result.requirement else "",
         requirement_type=result.requirement_type,
         ambiguity_status=result.ambiguity_status,
+        ambiguity_explanation=result.ambiguity_explanation,
         priority_level=result.priority_level,
+        priority_reason=result.priority_reason,
+        acceptance_criteria=result.acceptance_criteria,
+        test_case=result.test_case,
         confidence_score=getattr(result, "confidence_score", None),
         improvement_suggestion=getattr(result, "improvement_suggestion", None),
-        review_decision=latest_review.decision if latest_review else None,
-
-        review_notes=latest_review.review_notes if latest_review else None,
-        modified_requirement_type=latest_review.modified_requirement_type if latest_review else None,
-        modified_priority=latest_review.modified_priority if latest_review else None,
-        modified_acceptance_criteria=latest_review.modified_acceptance_criteria if latest_review else None,
-        modified_test_case=latest_review.modified_test_case if latest_review else None,
-        modified_into_analysis_id=extract_modified_into_id(latest_review.review_notes) if latest_review else None,
+        review_decision=review_decision,
+        analysis_method=getattr(result, "analysis_method", None),
+        literature_basis=getattr(result, "literature_basis", None),
 
         created_at=result.created_at,
+        review_id=latest_review.id if latest_review else None,
+        reviewer_notes=reviewer_notes,
+        rejection_reason=latest_review.rejection_reason if latest_review else None,
+        reviewed_at=latest_review.reviewed_at if latest_review else None,
+        review_created_at=latest_review.created_at if latest_review else None,
+        review_updated_at=latest_review.updated_at if latest_review else None,
+        final_refined_requirement=latest_review.final_refined_requirement if latest_review else None,
+        final_type=final_type,
+        final_priority=final_priority,
+        final_ambiguity_status=latest_review.final_ambiguity_status if latest_review else None,
+        final_acceptance_criteria=final_acceptance_criteria,
+        final_test_cases=final_test_cases,
+        refined_analysis_result_id=latest_review.refined_analysis_result_id if latest_review else None,
+        review_notes=reviewer_notes,
+        modified_requirement_type=final_type,
+        modified_priority=final_priority,
+        modified_acceptance_criteria=final_acceptance_criteria,
+        modified_test_case=final_test_cases,
+        modified_into_analysis_id=latest_review.refined_analysis_result_id if latest_review else None,
     )
 
 
@@ -62,22 +78,25 @@ def get_history(db: Session = Depends(get_db)):
             .order_by(AnalysisResult.created_at.desc())
             .all()
         )
-    except Exception:
-        return []
+        history_items = []
 
-    history_items = []
+        for result in results:
+            latest_review = (
+                db.query(UserReview)
+                .filter(UserReview.analysis_result_id == result.id)
+                .order_by(UserReview.reviewed_at.desc())
+                .first()
+            )
 
-    for result in results:
-        latest_review = (
-            db.query(UserReview)
-            .filter(UserReview.analysis_result_id == result.id)
-            .order_by(UserReview.reviewed_at.desc())
-            .first()
-        )
+            history_items.append(build_history_item(result, latest_review))
 
-        history_items.append(build_history_item(result, latest_review))
-
-    return history_items
+        return history_items
+    except Exception as exc:
+        logger.exception("Failed to load history items", exc_info=exc)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to load history records. Please try again later.",
+        ) from exc
 
 
 @router.get("/{analysis_id}", response_model=HistoryItem)
@@ -104,8 +123,30 @@ def delete_history_item(analysis_id: int, db: Session = Depends(get_db)):
     if not result:
         raise HTTPException(status_code=404, detail="Analysis result not found")
 
-    db.query(UserReview).filter(UserReview.analysis_result_id == analysis_id).delete()
-    db.delete(result)
-    db.commit()
+    requirement = result.requirement
+
+    try:
+        db.query(UserReview).filter(UserReview.analysis_result_id == analysis_id).delete()
+        db.delete(result)
+        db.flush()
+
+        if requirement is not None:
+            remaining_analysis = (
+                db.query(AnalysisResult)
+                .filter(AnalysisResult.requirement_id == requirement.id)
+                .first()
+            )
+
+            if remaining_analysis is None:
+                db.delete(requirement)
+
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Failed to delete history item %s", analysis_id, exc_info=exc)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to delete history record. Please try again later.",
+        ) from exc
 
     return {"message": "History item deleted successfully"}

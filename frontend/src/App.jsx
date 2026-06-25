@@ -1,18 +1,22 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Sidebar from './components/Sidebar';
 import Topbar from './components/Topbar';
+import GlobalLoader from './components/GlobalLoader';
 import Dashboard from './pages/Dashboard';
+import Projects from './pages/Projects';
 import Requirements from './pages/Requirements';
 import Analyse from './pages/Analyse';
 import ModulePage from './pages/ModulePage';
 import Validation from './pages/Validation';
 import Evaluation from './pages/Evaluation';
 import Settings from './pages/Settings';
-import { getHistory } from './services/api';
+import { getHistory, getProjects } from './services/api';
+import { REVIEW_STATUSES, isReviewedStatus, normalizeReviewStatus } from './utils/reviewStatuses';
 import './styles/main.css';
 
 const MODULES = {
   dashboard: 'Dashboard',
+  projects: 'Projects',
   requirements: 'Requirements',
   upload: 'Upload Requirements',
   classification: 'Classification',
@@ -29,9 +33,16 @@ const MODULES = {
 
 export default function App() {
   const [activePage, setActivePage] = useState('dashboard');
+  const [pendingPage, setPendingPage] = useState(null);
+  const [isNavigationLoading, setIsNavigationLoading] = useState(false);
   const [history, setHistory] = useState([]);
+  const [projects, setProjects] = useState([]);
+  const [selectedProjectId, setSelectedProjectId] = useState('');
   const [historyError, setHistoryError] = useState('');
+  const [projectsError, setProjectsError] = useState('');
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [isLoadingProjects, setIsLoadingProjects] = useState(false);
+  const navigationFrame = useRef(null);
 
   async function refreshHistory() {
     setIsLoadingHistory(true);
@@ -46,9 +57,50 @@ export default function App() {
     }
   }
 
+  async function refreshProjects() {
+    setIsLoadingProjects(true);
+    setProjectsError('');
+    try {
+      const data = await getProjects();
+      const projectList = Array.isArray(data) ? data : [];
+      setProjects(projectList);
+
+      if (projectList.length === 0) {
+        setSelectedProjectId('');
+      } else if (!projectList.some((project) => String(project.id) === String(selectedProjectId))) {
+        setSelectedProjectId(String(projectList[0].id));
+      }
+    } catch (error) {
+      setProjectsError(error.message || 'Failed to load projects.');
+    } finally {
+      setIsLoadingProjects(false);
+    }
+  }
+
+  async function refreshAllData() {
+    await Promise.all([refreshHistory(), refreshProjects()]);
+  }
+
   useEffect(() => {
-    refreshHistory();
+    refreshAllData();
   }, []);
+
+  useEffect(() => {
+    if (!isNavigationLoading) return undefined;
+
+    navigationFrame.current = window.requestAnimationFrame(() => {
+      navigationFrame.current = window.requestAnimationFrame(() => {
+        setIsNavigationLoading(false);
+        setPendingPage(null);
+      });
+    });
+
+    return () => {
+      if (navigationFrame.current) {
+        window.cancelAnimationFrame(navigationFrame.current);
+      }
+    };
+  }, [activePage, isNavigationLoading]);
 
   const pageTitle = MODULES[activePage] || 'Dashboard';
 
@@ -67,20 +119,49 @@ export default function App() {
     const high = history.filter((item) => (item.priority_level || '').toLowerCase() === 'high').length;
     const medium = history.filter((item) => (item.priority_level || '').toLowerCase() === 'medium').length;
     const low = history.filter((item) => (item.priority_level || '').toLowerCase() === 'low').length;
-    const accepted = history.filter((item) => (item.review_decision || '').toLowerCase() === 'accept').length;
-    const modified = history.filter((item) => (item.review_decision || '').toLowerCase() === 'modify').length;
-    const rejected = history.filter((item) => (item.review_decision || '').toLowerCase() === 'reject').length;
-    const reviewed = accepted + modified + rejected;
-    const pending = Math.max(total - reviewed, 0);
+    const accepted = history.filter((item) => normalizeReviewStatus(item.review_decision) === REVIEW_STATUSES.ACCEPTED).length;
+    const modified = history.filter((item) => normalizeReviewStatus(item.review_decision) === REVIEW_STATUSES.MODIFIED).length;
+    const rejected = history.filter((item) => normalizeReviewStatus(item.review_decision) === REVIEW_STATUSES.REJECTED).length;
+    const reviewed = history.filter((item) => isReviewedStatus(item.review_decision)).length;
+    const pending = history.filter((item) => normalizeReviewStatus(item.review_decision) === REVIEW_STATUSES.PENDING).length;
     const avgConfidence =
       total > 0 ? history.reduce((sum, item) => sum + Number(item.confidence_score || 0), 0) / total : 0;
+    const latestProjectActivity = history.length > 0 ? history[0].project_name || 'Unassigned project' : 'No recent project activity';
 
-    return { total, functional, nonFunctional, ambiguous, high, medium, low, accepted, modified, rejected, reviewed, pending, avgConfidence };
-  }, [history]);
+    return {
+      totalProjects: projects.length,
+      total,
+      functional,
+      nonFunctional,
+      ambiguous,
+      high,
+      medium,
+      low,
+      accepted,
+      modified,
+      rejected,
+      reviewed,
+      pending,
+      avgConfidence,
+      latestProjectActivity,
+    };
+  }, [history, projects]);
+
+  function handleNavigate(nextPage) {
+    if (!nextPage || nextPage === activePage) return;
+
+    setPendingPage(nextPage);
+    setIsNavigationLoading(true);
+    setActivePage(nextPage);
+  }
 
   function renderPage() {
     if (activePage === 'dashboard') {
-      return <Dashboard history={history} stats={stats} isLoading={isLoadingHistory} error={historyError} onNavigate={setActivePage} onRefresh={refreshHistory} />;
+      return <Dashboard history={history} stats={stats} isLoading={isLoadingHistory} error={historyError || projectsError} onNavigate={handleNavigate} onRefresh={refreshAllData} />;
+    }
+
+    if (activePage === 'projects') {
+      return <Projects projects={projects} isLoading={isLoadingProjects} error={projectsError} onRefresh={refreshProjects} />;
     }
 
     if (activePage === 'requirements' || activePage === 'history') {
@@ -89,36 +170,65 @@ export default function App() {
           title={activePage === 'history' ? 'Review History' : 'Requirements Repository'}
           subtitle={activePage === 'history' ? 'Saved requirement analysis records with human validation decisions.' : 'Central repository of analysed requirements and structured RE outputs.'}
           history={history}
+          projects={projects}
           isLoading={isLoadingHistory}
-          error={historyError}
-          onRefresh={refreshHistory}
+          error={historyError || projectsError}
+          onRefresh={refreshAllData}
         />
       );
     }
 
     if (activePage === 'upload') {
-      return <Analyse mode="upload" onAnalysed={refreshHistory} />;
+      return (
+        <Analyse
+          mode="upload"
+          onAnalysed={refreshAllData}
+          projects={projects}
+          selectedProjectId={selectedProjectId}
+          onProjectChange={setSelectedProjectId}
+        />
+      );
     }
 
     if (activePage === 'validation') {
-      return <Validation history={history} stats={stats} onRefresh={refreshHistory} />;
+      return <Validation history={history} stats={stats} onRefresh={refreshAllData} />;
     }
 
     if (activePage === 'evaluation' || activePage === 'reports') {
-      return <Evaluation title={activePage === 'reports' ? 'Reports' : 'Evaluation Metrics'} history={history} stats={stats} />;
+      return <Evaluation title={activePage === 'reports' ? 'Reports' : 'Evaluation Metrics'} history={history} stats={stats} onRefresh={refreshAllData} projects={projects} />;
     }
 
     if (activePage === 'settings') return <Settings />;
 
-    return <ModulePage moduleKey={activePage} title={pageTitle} history={history} onAnalysed={refreshHistory} />;
+    return (
+      <ModulePage
+        moduleKey={activePage}
+        title={pageTitle}
+        history={history}
+        onAnalysed={refreshAllData}
+        projects={projects}
+        selectedProjectId={selectedProjectId}
+        onProjectChange={setSelectedProjectId}
+      />
+    );
   }
+
+  const contentLoaderTitle = MODULES[pendingPage] || MODULES[activePage] || 'Loading';
 
   return (
     <div className="app-shell">
-      <Sidebar activePage={activePage} onNavigate={setActivePage} />
+      <Sidebar activePage={activePage} onNavigate={handleNavigate} />
       <main className="main-area">
-        <Topbar title={pageTitle} onRefresh={refreshHistory} />
-        <div className="page-content">{renderPage()}</div>
+        <Topbar title={pageTitle} onRefresh={refreshAllData} />
+        <div className="page-content page-content-shell">
+          <GlobalLoader
+            visible={isNavigationLoading}
+            title={`Loading ${contentLoaderTitle}`}
+            message="Please wait while the selected screen is prepared."
+            scope="content"
+          />
+          {renderPage()}
+        </div>
       </main>
     </div>
   );

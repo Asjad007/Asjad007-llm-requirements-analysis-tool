@@ -4,6 +4,8 @@ from typing import Dict, Any
 
 from openai import OpenAI
 
+from app.services.prompt_service import build_requirements_analysis_prompt
+
 
 REQUIRED_FIELDS = {
     "requirement_type": "Unclear",
@@ -41,7 +43,7 @@ def _normalise_result(data: Dict[str, Any]) -> Dict[str, Any]:
     return data
 
 
-def generate_analysis(requirement_text: str) -> Dict[str, Any]:
+def generate_analysis(requirement_text: str, project_context: Dict[str, Any] | None = None) -> Dict[str, Any]:
     api_key = os.getenv("OPENAI_API_KEY", "")
     model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
@@ -57,9 +59,7 @@ def generate_analysis(requirement_text: str) -> Dict[str, Any]:
     prompt = f"""
 You are an expert Requirements Engineering assistant.
 
-Analyse the following software requirement:
-
-\"\"\"{requirement_text}\"\"\"
+{build_requirements_analysis_prompt(requirement_text, project_context)}
 
 Return ONLY valid JSON. Do not include markdown, code fences, or explanation outside JSON.
 
