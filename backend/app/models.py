@@ -81,6 +81,7 @@ class UserReview(Base):
     final_ambiguity_status = Column(String(100), nullable=True)
     final_acceptance_criteria = Column(Text, nullable=True)
     final_test_cases = Column(Text, nullable=True)
+    field_level_decisions = Column(Text, nullable=True)
     reviewer_notes = Column(Text, nullable=True)
     rejection_reason = Column(Text, nullable=True)
     modified_requirement_type = Column(String(100), nullable=True)

@@ -7,6 +7,11 @@ import {
   getReviewStatusBadgeClass,
   normalizeReviewStatus,
 } from "../utils/reviewStatuses";
+import {
+  buildAcceptedFieldDecisions,
+  buildModifiedFieldDecisions,
+  buildRejectedFieldDecisions,
+} from "../utils/fieldReviewDecisions";
 
 function badgeClass(value) {
   if (!value) return "badge";
@@ -554,6 +559,12 @@ export default function Analyse({ projects = [], selectedProjectId = "", onProje
         decision,
         reviewer_notes: options.reviewerNotes || `Decision recorded from batch analysis grid: ${decision}`,
         rejection_reason: options.rejectionReason || null,
+        field_level_decisions:
+          decision === REVIEW_STATUSES.ACCEPTED
+            ? buildAcceptedFieldDecisions()
+            : decision === REVIEW_STATUSES.REJECTED
+              ? buildRejectedFieldDecisions()
+              : null,
       });
 
       setResults((previous) =>
@@ -571,6 +582,12 @@ export default function Analyse({ projects = [], selectedProjectId = "", onProje
                 final_ambiguity_status: decision === REVIEW_STATUSES.ACCEPTED ? item.ambiguity_status : null,
                 final_acceptance_criteria: decision === REVIEW_STATUSES.ACCEPTED ? item.acceptance_criteria : null,
                 final_test_cases: decision === REVIEW_STATUSES.ACCEPTED ? item.test_case : null,
+                field_level_decisions:
+                  decision === REVIEW_STATUSES.ACCEPTED
+                    ? buildAcceptedFieldDecisions()
+                    : decision === REVIEW_STATUSES.REJECTED
+                      ? buildRejectedFieldDecisions()
+                      : item.field_level_decisions,
               }
             : item
         )
@@ -583,6 +600,12 @@ export default function Analyse({ projects = [], selectedProjectId = "", onProje
           review_notes: options.reviewerNotes || `Decision recorded from batch analysis grid: ${decision}`,
           reviewer_notes: options.reviewerNotes || `Decision recorded from batch analysis grid: ${decision}`,
           rejection_reason: options.rejectionReason || null,
+          field_level_decisions:
+            decision === REVIEW_STATUSES.ACCEPTED
+              ? buildAcceptedFieldDecisions()
+              : decision === REVIEW_STATUSES.REJECTED
+                ? buildRejectedFieldDecisions()
+                : previous.field_level_decisions,
         }));
       }
 
@@ -613,7 +636,20 @@ export default function Analyse({ projects = [], selectedProjectId = "", onProje
     setModifyLoading(true);
 
     try {
+      const originalItem = results.find((item) => item.analysis_id === analysisId);
       const updatedResult = await modifyAndReanalyse(analysisId, payload);
+      const fieldLevelDecisions = buildModifiedFieldDecisions({
+        llmType: originalItem?.requirement_type,
+        finalType: updatedResult.requirement_type,
+        llmPriority: originalItem?.priority_level,
+        finalPriority: updatedResult.priority_level,
+        llmAmbiguity: originalItem?.ambiguity_status,
+        finalAmbiguity: updatedResult.ambiguity_status,
+        llmAcceptanceCriteria: originalItem?.acceptance_criteria,
+        finalAcceptanceCriteria: updatedResult.acceptance_criteria,
+        llmTestCases: originalItem?.test_case,
+        finalTestCases: updatedResult.test_case,
+      });
 
       setResults((previous) =>
         previous.map((item) =>
@@ -631,6 +667,7 @@ export default function Analyse({ projects = [], selectedProjectId = "", onProje
                 final_acceptance_criteria: updatedResult.acceptance_criteria,
                 final_test_cases: updatedResult.test_case,
                 modified_into_analysis_id: updatedResult.analysis_id,
+                field_level_decisions: fieldLevelDecisions,
               }
             : item
         )
@@ -844,6 +881,13 @@ export default function Analyse({ projects = [], selectedProjectId = "", onProje
             <span className="small-muted-text">Create a project first to analyse requirements in context.</span>
           )}
         </div>
+
+        {!projects.length && (
+          <div className="empty-state inline-empty-state">
+            <h3>No projects available</h3>
+            <p>Create a project first so requirements can be analysed in the correct research context.</p>
+          </div>
+        )}
 
         <div className="input-mode-toggle" role="tablist" aria-label="Requirement input methods">
           <button

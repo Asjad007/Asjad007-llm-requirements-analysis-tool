@@ -1,5 +1,7 @@
 ﻿from typing import List, Optional
 
+import json
+
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -16,6 +18,14 @@ from app.services.requirement_extraction_service import clean_requirement_candid
 
 router = APIRouter(prefix="/api/analysis", tags=["Analysis"])
 
+FIELD_LEVEL_KEYS = [
+    "classification",
+    "priority",
+    "ambiguity",
+    "acceptance_criteria",
+    "test_cases",
+]
+
 
 class ModifyReanalyseRequest(BaseModel):
     modified_requirement_text: str
@@ -27,6 +37,26 @@ def run_llm_or_mock(requirement_text: str, project_context: dict | None = None):
         return mock_analyse(requirement_text)
 
     return generate_analysis(requirement_text, project_context)
+
+
+def build_default_field_level_decisions(decision: str):
+    return {key: decision for key in FIELD_LEVEL_KEYS}
+
+
+def serialise_field_level_decisions(field_level_decisions: dict[str, str] | None):
+    if not field_level_decisions:
+        return None
+
+    cleaned: dict[str, str] = {}
+
+    for key in FIELD_LEVEL_KEYS:
+        value = field_level_decisions.get(key) if isinstance(field_level_decisions, dict) else None
+        if not value:
+            continue
+
+        cleaned[key] = normalize_review_status_or_raise(value)
+
+    return json.dumps(cleaned) if cleaned else None
 
 
 def build_analysis_response(requirement: Requirement, analysis_result: AnalysisResult) -> AnalysisResponse:
@@ -220,6 +250,9 @@ def modify_and_reanalyse_requirement(
         analysis_result_id=analysis_id,
         refined_analysis_result_id=modified_response.analysis_id,
         decision=REVIEW_STATUSES["MODIFIED"],
+        field_level_decisions=serialise_field_level_decisions(
+            build_default_field_level_decisions(REVIEW_STATUSES["MODIFIED"])
+        ),
         reviewer_notes=payload.reviewer_notes.strip() if payload.reviewer_notes else None,
         review_notes=payload.reviewer_notes.strip() if payload.reviewer_notes else None,
         modified_requirement_type=modified_analysis.requirement_type,
@@ -260,12 +293,14 @@ def review_analysis_result(
         raise HTTPException(status_code=400, detail="Rejection reason is required")
 
     final_fields = {}
+    field_level_decisions = payload.field_level_decisions or {}
 
     if normalised_decision == REVIEW_STATUSES["ACCEPTED"]:
         final_fields = build_final_review_fields(
             analysis_result.requirement.requirement_text if analysis_result.requirement else "",
             analysis_result,
         )
+        field_level_decisions = build_default_field_level_decisions(REVIEW_STATUSES["ACCEPTED"])
     elif normalised_decision == REVIEW_STATUSES["MODIFIED"]:
         if not payload.final_refined_requirement or not payload.final_refined_requirement.strip():
             raise HTTPException(status_code=400, detail="Final refined requirement is required for modified reviews")
@@ -278,11 +313,16 @@ def review_analysis_result(
             "final_acceptance_criteria": payload.final_acceptance_criteria,
             "final_test_cases": payload.final_test_cases,
         }
+        if not field_level_decisions:
+            field_level_decisions = build_default_field_level_decisions(REVIEW_STATUSES["ACCEPTED"])
+    elif normalised_decision == REVIEW_STATUSES["REJECTED"] and not field_level_decisions:
+        field_level_decisions = build_default_field_level_decisions(REVIEW_STATUSES["REJECTED"])
 
     review = UserReview(
         requirement_id=analysis_result.requirement_id,
         analysis_result_id=analysis_id,
         decision=normalised_decision,
+        field_level_decisions=serialise_field_level_decisions(field_level_decisions),
         reviewer_notes=payload.reviewer_notes.strip() if payload.reviewer_notes else None,
         review_notes=payload.reviewer_notes.strip() if payload.reviewer_notes else None,
         rejection_reason=payload.rejection_reason.strip() if payload.rejection_reason else None,
@@ -308,6 +348,7 @@ def review_analysis_result(
         final_ambiguity_status=review.final_ambiguity_status,
         final_acceptance_criteria=review.final_acceptance_criteria,
         final_test_cases=review.final_test_cases,
+        field_level_decisions=json.loads(review.field_level_decisions) if review.field_level_decisions else None,
         reviewer_notes=review.reviewer_notes,
         rejection_reason=review.rejection_reason,
         reviewed_at=review.reviewed_at,

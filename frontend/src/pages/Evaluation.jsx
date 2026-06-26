@@ -97,7 +97,7 @@ export default function Evaluation({ title, history, stats, onRefresh, projects 
   return (
     <section className="panel page-panel data-page-panel">
       <div className="module-header">
-        <div><span className="module-kicker">Evaluation</span><h2>{title}</h2><p>Evaluation-ready metrics for the dissertation. These measures can later be compared against manually labelled reference requirements.</p></div>
+        <div><span className="module-kicker">Evaluation</span><h2>{title}</h2><p>Research-focused metrics for human-in-the-loop evaluation.</p></div>
       </div>
       <div className="project-filter-row">
         <label className="project-filter-label">

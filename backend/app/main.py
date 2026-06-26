@@ -25,6 +25,7 @@ def ensure_user_review_columns():
         "final_ambiguity_status": "VARCHAR(100)",
         "final_acceptance_criteria": "TEXT",
         "final_test_cases": "TEXT",
+        "field_level_decisions": "TEXT",
         "reviewer_notes": "TEXT",
         "rejection_reason": "TEXT",
         "created_at": "DATETIME",

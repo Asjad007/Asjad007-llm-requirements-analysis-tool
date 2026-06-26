@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -47,6 +47,7 @@ class ReviewCreate(BaseModel):
     final_ambiguity_status: Optional[str] = None
     final_acceptance_criteria: Optional[str] = None
     final_test_cases: Optional[str] = None
+    field_level_decisions: Optional[Dict[str, str]] = None
     reviewer_notes: Optional[str] = None
     rejection_reason: Optional[str] = None
 
@@ -62,6 +63,7 @@ class ReviewResponse(BaseModel):
     final_ambiguity_status: Optional[str] = None
     final_acceptance_criteria: Optional[str] = None
     final_test_cases: Optional[str] = None
+    field_level_decisions: Optional[Dict[str, str]] = None
     reviewer_notes: Optional[str] = None
     rejection_reason: Optional[str] = None
     reviewed_at: datetime
@@ -102,6 +104,7 @@ class HistoryItem(BaseModel):
     final_ambiguity_status: Optional[str] = None
     final_acceptance_criteria: Optional[str] = None
     final_test_cases: Optional[str] = None
+    field_level_decisions: Optional[Dict[str, str]] = None
     refined_analysis_result_id: Optional[int] = None
 
     # Compatibility aliases for existing frontend tables

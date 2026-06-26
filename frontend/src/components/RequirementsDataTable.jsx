@@ -29,7 +29,7 @@ function badgeClass(value) {
   return "badge";
 }
 
-export default function RequirementsDataTable({ history = [], onRefresh, isLoading = false }) {
+export default function RequirementsDataTable({ history = [], onRefresh, isLoading = false, emptyMessage = "No requirement records found." }) {
   const columns = [
     {
       key: "analysis_id",
@@ -191,7 +191,7 @@ export default function RequirementsDataTable({ history = [], onRefresh, isLoadi
       loading={isLoading}
       onRefresh={onRefresh}
       searchPlaceholder="Search requirements, statuses, or notes..."
-      emptyMessage="No requirement records found."
+      emptyMessage={emptyMessage}
       footerLabel="records"
       tableClassName="history-table"
       containerClassName="history-table-shell"

@@ -872,3 +872,206 @@
     justify-content: flex-start;
   }
 }
+
+.workflow-note-card,
+.reports-form-card,
+.reports-summary-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 18px;
+}
+
+.workflow-note-card {
+  margin-bottom: 20px;
+}
+
+.workflow-note-card strong {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.workflow-note-card p {
+  margin: 0;
+  color: #475569;
+}
+
+.reports-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.9fr);
+  gap: 20px;
+  margin-top: 20px;
+}
+
+.reports-date-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.reports-action-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 20px;
+}
+
+.inline-empty-state {
+  margin-top: 16px;
+  padding: 20px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 16px;
+  background: #f8fafc;
+}
+
+.workspace-modal {
+  width: min(1240px, 96vw);
+}
+
+.workspace-tab-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.workspace-tab {
+  border: 1px solid #d8e1ef;
+  background: #ffffff;
+  color: #334155;
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-weight: 700;
+}
+
+.workspace-tab.active {
+  background: #ede9fe;
+  border-color: #c4b5fd;
+  color: #4c1d95;
+}
+
+.workspace-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.65fr) minmax(280px, 0.85fr);
+  gap: 20px;
+}
+
+.workspace-main,
+.workspace-sidebar {
+  min-width: 0;
+}
+
+.workspace-section-stack {
+  display: grid;
+  gap: 18px;
+}
+
+.workspace-section-card,
+.workspace-sidebar-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+  padding: 18px;
+}
+
+.workspace-section-card h3,
+.workspace-sidebar-card h3 {
+  margin: 0 0 14px;
+}
+
+.workspace-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.workspace-field {
+  display: grid;
+  gap: 6px;
+}
+
+.workspace-field-label {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.workspace-field-value {
+  color: #0f172a;
+  line-height: 1.6;
+}
+
+.workspace-empty {
+  padding: 18px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.workspace-empty p {
+  margin: 0;
+  color: #64748b;
+}
+
+.workspace-comparison-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.workspace-compare-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 16px;
+}
+
+.workspace-compare-card h4 {
+  margin: 0 0 12px;
+}
+
+.workspace-compare-card p {
+  margin: 0 0 12px;
+  color: #334155;
+  line-height: 1.6;
+}
+
+.workspace-action-column {
+  display: grid;
+  gap: 10px;
+}
+
+.review-checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.review-checkbox-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #30436f;
+  font-weight: 600;
+}
+
+.review-checkbox-item input {
+  accent-color: #6d4cff;
+}
+
+@media (max-width: 980px) {
+  .reports-layout,
+  .reports-date-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-layout,
+  .workspace-grid,
+  .workspace-comparison-grid {
+    grid-template-columns: 1fr;
+  }
+}
