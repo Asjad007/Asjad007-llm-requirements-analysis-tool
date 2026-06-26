@@ -1,6 +1,6 @@
-from typing import List, Optional
+﻿from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -8,9 +8,11 @@ from app.config import settings
 from app.database import get_db
 from app.models import AnalysisResult, Project, Requirement, UserReview
 from app.review_status import REVIEW_STATUSES, normalize_review_status_or_raise
-from app.schemas import AnalysisResponse, RequirementCreate, ReviewCreate, ReviewResponse
-from app.services.mock_analysis_service import analyse_requirement as mock_analyse
+from app.schemas import AnalysisResponse, DocumentExtractionResponse, RequirementCreate, ReviewCreate, ReviewResponse
+from app.services.document_extraction_service import detect_document_extension, extract_document_text
 from app.services.llm_service import generate_analysis
+from app.services.mock_analysis_service import analyse_requirement as mock_analyse
+from app.services.requirement_extraction_service import clean_requirement_candidate, extract_requirements_from_text
 
 router = APIRouter(prefix="/api/analysis", tags=["Analysis"])
 
@@ -18,37 +20,6 @@ router = APIRouter(prefix="/api/analysis", tags=["Analysis"])
 class ModifyReanalyseRequest(BaseModel):
     modified_requirement_text: str
     reviewer_notes: Optional[str] = None
-
-
-def split_requirements(text: str) -> List[str]:
-    if not text or not text.strip():
-        return []
-
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    requirements = []
-
-    for line in lines:
-        cleaned = line.strip()
-
-        for prefix in ["-", "*", "•"]:
-            if cleaned.startswith(prefix):
-                cleaned = cleaned[len(prefix):].strip()
-
-        parts = cleaned.split(" ", 1)
-        if len(parts) == 2:
-            first = parts[0].strip()
-            if first.endswith(".") or first.endswith(")"):
-                numeric_part = first[:-1]
-                if numeric_part.isdigit():
-                    cleaned = parts[1].strip()
-
-        if cleaned:
-            requirements.append(cleaned)
-
-    if not requirements:
-        requirements = [text.strip()]
-
-    return requirements
 
 
 def run_llm_or_mock(requirement_text: str, project_context: dict | None = None):
@@ -76,7 +47,7 @@ def build_analysis_response(requirement: Requirement, analysis_result: AnalysisR
         confidence_score=analysis_result.confidence_score,
         analysis_method=analysis_result.analysis_method,
         literature_basis=analysis_result.literature_basis,
-        created_at=analysis_result.created_at
+        created_at=analysis_result.created_at,
     )
 
 
@@ -84,12 +55,12 @@ def analyse_and_save_requirement(
     requirement_text: str,
     source_type: str,
     project: Project,
-    db: Session
+    db: Session,
 ) -> AnalysisResponse:
     requirement = Requirement(
         project_id=project.id,
         requirement_text=requirement_text.strip(),
-        source_type=source_type
+        source_type=source_type,
     )
 
     db.add(requirement)
@@ -118,7 +89,7 @@ def analyse_and_save_requirement(
         improvement_suggestion=analysis_output.get("improvement_suggestion", ""),
         confidence_score=analysis_output.get("confidence_score", 0.5),
         analysis_method=analysis_output.get("analysis_method", ""),
-        literature_basis=analysis_output.get("literature_basis", "")
+        literature_basis=analysis_output.get("literature_basis", ""),
     )
 
     db.add(analysis_result)
@@ -128,10 +99,37 @@ def analyse_and_save_requirement(
     return build_analysis_response(requirement, analysis_result)
 
 
+@router.post("/extract-document", response_model=DocumentExtractionResponse)
+async def extract_requirement_document(file: UploadFile = File(...)):
+    extension = detect_document_extension(file.filename or "")
+    file_bytes = await file.read()
+
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="The uploaded document is empty.")
+
+    extracted_text = extract_document_text(file, file_bytes)
+
+    if not extracted_text:
+        raise HTTPException(status_code=400, detail="No readable text was found in the uploaded document.")
+
+    requirements = extract_requirements_from_text(extracted_text)
+
+    if not requirements:
+        raise HTTPException(status_code=400, detail="No requirements could be extracted from the uploaded document.")
+
+    return DocumentExtractionResponse(
+        filename=file.filename or "document",
+        file_type=extension.lstrip(".").upper(),
+        extracted_text=extracted_text,
+        requirements=requirements,
+        requirement_count=len(requirements),
+    )
+
+
 @router.post("/analyse", response_model=AnalysisResponse)
 def analyse_requirement_endpoint(
     payload: RequirementCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     project = db.query(Project).filter(Project.id == payload.project_id).first()
 
@@ -142,16 +140,24 @@ def analyse_requirement_endpoint(
         requirement_text=payload.requirement_text,
         source_type=payload.source_type,
         project=project,
-        db=db
+        db=db,
     )
 
 
 @router.post("/batch", response_model=List[AnalysisResponse])
 def analyse_batch_requirements(
     payload: RequirementCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    detected_requirements = split_requirements(payload.requirement_text)
+    detected_requirements = []
+
+    for requirement in payload.requirements or []:
+        cleaned_requirement = clean_requirement_candidate(requirement)
+        if cleaned_requirement:
+            detected_requirements.append(cleaned_requirement)
+
+    if not detected_requirements:
+        detected_requirements = extract_requirements_from_text(payload.requirement_text)
 
     if not detected_requirements:
         raise HTTPException(status_code=400, detail="No valid requirements found")
@@ -168,7 +174,7 @@ def analyse_batch_requirements(
             requirement_text=requirement_text,
             source_type=payload.source_type,
             project=project,
-            db=db
+            db=db,
         )
         results.append(result)
 
@@ -179,7 +185,7 @@ def analyse_batch_requirements(
 def modify_and_reanalyse_requirement(
     analysis_id: int,
     payload: ModifyReanalyseRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     original_analysis = (
         db.query(AnalysisResult)
@@ -200,7 +206,7 @@ def modify_and_reanalyse_requirement(
         requirement_text=payload.modified_requirement_text.strip(),
         source_type="human_modified",
         project=original_analysis.requirement.project,
-        db=db
+        db=db,
     )
 
     modified_analysis = (
@@ -223,7 +229,7 @@ def modify_and_reanalyse_requirement(
         **build_final_review_fields(
             payload.modified_requirement_text.strip(),
             modified_analysis,
-        )
+        ),
     )
 
     db.add(review)
@@ -237,7 +243,7 @@ def modify_and_reanalyse_requirement(
 def review_analysis_result(
     analysis_id: int,
     payload: ReviewCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     analysis_result = (
         db.query(AnalysisResult)
@@ -284,7 +290,7 @@ def review_analysis_result(
         modified_priority=final_fields.get("final_priority"),
         modified_acceptance_criteria=final_fields.get("final_acceptance_criteria"),
         modified_test_case=final_fields.get("final_test_cases"),
-        **final_fields
+        **final_fields,
     )
 
     db.add(review)
@@ -306,7 +312,7 @@ def review_analysis_result(
         rejection_reason=review.rejection_reason,
         reviewed_at=review.reviewed_at,
         created_at=review.created_at,
-        updated_at=review.updated_at
+        updated_at=review.updated_at,
     )
 
 

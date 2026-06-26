@@ -41,6 +41,18 @@ export async function analyseBatchRequirements(payload) {
   return handleResponse(response);
 }
 
+export async function extractRequirementsDocument(file) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch(`${API_BASE_URL}/api/analysis/extract-document`, {
+    method: "POST",
+    body: formData,
+  });
+
+  return handleResponse(response);
+}
+
 export async function reviewAnalysis(analysisId, payload) {
   const response = await fetch(`${API_BASE_URL}/api/analysis/review/${analysisId}`, {
     method: "POST",

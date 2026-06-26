@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -8,6 +8,15 @@ class RequirementCreate(BaseModel):
     requirement_text: str = Field(..., min_length=5)
     source_type: str = "manual"
     project_id: int
+    requirements: Optional[List[str]] = None
+
+
+class DocumentExtractionResponse(BaseModel):
+    filename: str
+    file_type: str
+    extracted_text: str
+    requirements: List[str]
+    requirement_count: int
 
 
 class AnalysisResponse(BaseModel):
