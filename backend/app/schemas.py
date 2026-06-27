@@ -146,3 +146,36 @@ class ProjectContext(BaseModel):
     name: str
     description: Optional[str] = None
     domain_system_type: Optional[str] = None
+
+
+class ReferenceRequirementBase(BaseModel):
+    project_id: Optional[int] = None
+    requirement_id: Optional[int] = None
+    original_requirement_text: str = Field(..., min_length=3)
+    reference_type: Optional[str] = None
+    reference_priority: Optional[str] = None
+    reference_ambiguity_status: Optional[str] = None
+    reference_acceptance_criteria: Optional[str] = None
+    reference_test_cases: Optional[str] = None
+    reference_notes: Optional[str] = None
+
+
+class ReferenceRequirementCreate(ReferenceRequirementBase):
+    pass
+
+
+class ReferenceRequirementUpdate(ReferenceRequirementBase):
+    pass
+
+
+class ReferenceRequirementResponse(ReferenceRequirementBase):
+    id: int
+    project_name: Optional[str] = None
+    linked_requirement_text: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ReferenceDatasetImportResponse(BaseModel):
+    imported_count: int
+    linked_count: int

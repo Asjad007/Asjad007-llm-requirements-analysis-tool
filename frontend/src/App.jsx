@@ -10,8 +10,9 @@ import ModulePage from './pages/ModulePage';
 import Validation from './pages/Validation';
 import Evaluation from './pages/Evaluation';
 import Reports from './pages/Reports';
+import ReferenceDataset from './pages/ReferenceDataset';
 import Settings from './pages/Settings';
-import { getHistory, getProjects } from './services/api';
+import { getHistory, getProjects, getReferenceDataset } from './services/api';
 import { REVIEW_STATUSES, isReviewedStatus, normalizeReviewStatus } from './utils/reviewStatuses';
 import './styles/main.css';
 
@@ -27,8 +28,9 @@ const MODULES = {
   testcases: 'Test Case Generation',
   validation: 'Human Validation',
   history: 'Review History',
-  evaluation: 'Evaluation Metrics',
-  reports: 'Reports',
+  evaluation: 'Human-in-the-Loop Evaluation Metrics',
+  reference: 'Reference Dataset',
+  reports: 'Research Reports',
   settings: 'Settings'
 };
 
@@ -41,8 +43,11 @@ export default function App() {
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [historyError, setHistoryError] = useState('');
   const [projectsError, setProjectsError] = useState('');
+  const [referenceEntries, setReferenceEntries] = useState([]);
+  const [referenceError, setReferenceError] = useState('');
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isLoadingProjects, setIsLoadingProjects] = useState(false);
+  const [isLoadingReferenceEntries, setIsLoadingReferenceEntries] = useState(false);
   const navigationFrame = useRef(null);
 
   async function refreshHistory() {
@@ -78,8 +83,21 @@ export default function App() {
     }
   }
 
+  async function refreshReferenceEntries() {
+    setIsLoadingReferenceEntries(true);
+    setReferenceError('');
+    try {
+      const data = await getReferenceDataset();
+      setReferenceEntries(Array.isArray(data) ? data : []);
+    } catch (error) {
+      setReferenceError(error.message || 'Failed to load reference dataset.');
+    } finally {
+      setIsLoadingReferenceEntries(false);
+    }
+  }
+
   async function refreshAllData() {
-    await Promise.all([refreshHistory(), refreshProjects()]);
+    await Promise.all([refreshHistory(), refreshProjects(), refreshReferenceEntries()]);
   }
 
   useEffect(() => {
@@ -198,11 +216,24 @@ export default function App() {
     }
 
     if (activePage === 'evaluation') {
-      return <Evaluation title="Evaluation Metrics" history={history} stats={stats} onRefresh={refreshAllData} projects={projects} />;
+      return <Evaluation history={history} referenceEntries={referenceEntries} onRefresh={refreshAllData} projects={projects} />;
+    }
+
+    if (activePage === 'reference') {
+      return (
+        <ReferenceDataset
+          references={referenceEntries}
+          projects={projects}
+          history={history}
+          isLoading={isLoadingReferenceEntries}
+          error={referenceError}
+          onRefresh={refreshAllData}
+        />
+      );
     }
 
     if (activePage === 'reports') {
-      return <Reports history={history} projects={projects} onRefresh={refreshAllData} />;
+      return <Reports history={history} referenceEntries={referenceEntries} projects={projects} onRefresh={refreshAllData} />;
     }
 
     if (activePage === 'settings') return <Settings />;

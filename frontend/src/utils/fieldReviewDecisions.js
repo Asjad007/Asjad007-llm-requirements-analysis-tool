@@ -29,6 +29,15 @@ export function buildAcceptedFieldDecisions() {
   }, {});
 }
 
+export function resolveFieldReviewDecisions(value, fallbackDecision = REVIEW_STATUSES.ACCEPTED) {
+  const explicit = normalizeFieldReviewDecisions(value);
+
+  return FIELD_REVIEW_KEYS.reduce((accumulator, key) => {
+    accumulator[key] = explicit[key] || fallbackDecision;
+    return accumulator;
+  }, {});
+}
+
 export function buildRejectedFieldDecisions(selectedKeys = []) {
   if (!selectedKeys.length) {
     return FIELD_REVIEW_KEYS.reduce((accumulator, key) => {

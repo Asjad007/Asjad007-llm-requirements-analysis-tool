@@ -18,7 +18,8 @@
   ]},
   { title: 'Evaluation', items: [
     { key: 'evaluation', label: 'Evaluation Metrics', icon: 'E' },
-    { key: 'reports', label: 'Reports', icon: 'Rp' }
+    { key: 'reports', label: 'Reports', icon: 'Rp' },
+    { key: 'reference', label: 'Reference Dataset', icon: 'G' }
   ]},
   { title: 'Other', items: [
     { key: 'settings', label: 'Settings', icon: 'S' }

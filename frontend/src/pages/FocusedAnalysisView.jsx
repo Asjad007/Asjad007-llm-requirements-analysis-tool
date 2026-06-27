@@ -91,7 +91,7 @@ export default function FocusedAnalysisView({ moduleKey, history = [], onRefresh
 
       <div className="workflow-note-card">
         <strong>Workflow Context</strong>
-        <p>Project {"->"} Upload {"->"} Repository {"->"} Human Validation {"->"} Review History {"->"} Evaluation {"->"} Reports</p>
+        <p>Project {"->"} Upload {"->"} Repository {"->"} Human Validation {"->"} Review History {"->"} Evaluation {"->"} Reports {"->"} Reference Dataset</p>
       </div>
 
       <AppDataTable

@@ -34,6 +34,11 @@ class Project(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     requirements = relationship("Requirement", back_populates="project")
+    reference_requirements = relationship(
+        "ReferenceRequirement",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
 
 
 class AnalysisResult(Base):
@@ -96,3 +101,23 @@ class UserReview(Base):
     requirement = relationship("Requirement")
     analysis_result = relationship("AnalysisResult", back_populates="reviews", foreign_keys=[analysis_result_id])
     refined_analysis_result = relationship("AnalysisResult", foreign_keys=[refined_analysis_result_id])
+
+
+class ReferenceRequirement(Base):
+    __tablename__ = "reference_requirements"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)
+    requirement_id = Column(Integer, ForeignKey("requirements.id"), nullable=True)
+    original_requirement_text = Column(Text, nullable=False)
+    reference_type = Column(String(100), nullable=True)
+    reference_priority = Column(String(100), nullable=True)
+    reference_ambiguity_status = Column(String(100), nullable=True)
+    reference_acceptance_criteria = Column(Text, nullable=True)
+    reference_test_cases = Column(Text, nullable=True)
+    reference_notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    project = relationship("Project", back_populates="reference_requirements")
+    requirement = relationship("Requirement")

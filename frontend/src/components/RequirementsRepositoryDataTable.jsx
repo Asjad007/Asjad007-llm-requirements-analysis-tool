@@ -15,6 +15,7 @@ import {
   FIELD_REVIEW_LABELS,
   FIELD_REVIEW_OPTIONS,
   inferFieldReviewDecisions,
+  resolveFieldReviewDecisions,
 } from "../utils/fieldReviewDecisions";
 
 function formatReqId(id) {
@@ -101,7 +102,9 @@ function ModifyReviewModal({ item, loading, onClose, onSubmit }) {
   const [acceptanceCriteria, setAcceptanceCriteria] = useState(item?.final_acceptance_criteria || item?.acceptance_criteria || "");
   const [testCases, setTestCases] = useState(item?.final_test_cases || item?.test_case || "");
   const [notes, setNotes] = useState(item?.reviewer_notes || item?.review_notes || "");
-  const [fieldDecisions, setFieldDecisions] = useState(inferFieldReviewDecisions(item));
+  const [fieldDecisions, setFieldDecisions] = useState(
+    resolveFieldReviewDecisions(inferFieldReviewDecisions(item))
+  );
 
   useEffect(() => {
     setModifiedText(item?.final_refined_requirement || item?.original_text || "");
@@ -111,7 +114,7 @@ function ModifyReviewModal({ item, loading, onClose, onSubmit }) {
     setAcceptanceCriteria(item?.final_acceptance_criteria || item?.acceptance_criteria || "");
     setTestCases(item?.final_test_cases || item?.test_case || "");
     setNotes(item?.reviewer_notes || item?.review_notes || "");
-    setFieldDecisions(inferFieldReviewDecisions(item));
+    setFieldDecisions(resolveFieldReviewDecisions(inferFieldReviewDecisions(item)));
   }, [item]);
 
   if (!item) return null;
@@ -214,7 +217,7 @@ function ModifyReviewModal({ item, loading, onClose, onSubmit }) {
                 final_ambiguity_status: finalAmbiguityStatus,
                 final_acceptance_criteria: acceptanceCriteria,
                 final_test_cases: testCases,
-                field_level_decisions: fieldDecisions,
+                field_level_decisions: resolveFieldReviewDecisions(fieldDecisions),
                 reviewer_notes: notes || "Human validated and modified the requirement analysis.",
               })
             }

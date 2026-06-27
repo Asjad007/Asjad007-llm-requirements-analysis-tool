@@ -1,12 +1,35 @@
 const API_BASE_URL = "http://127.0.0.1:8000";
 
+function formatApiError(errorPayload) {
+  const detail = errorPayload?.detail;
+
+  if (Array.isArray(detail)) {
+    return detail
+      .map((entry) => {
+        if (typeof entry === "string") return entry;
+        if (entry?.msg && Array.isArray(entry?.loc)) {
+          return `${entry.loc.join(".")}: ${entry.msg}`;
+        }
+        if (entry?.msg) return entry.msg;
+        return null;
+      })
+      .filter(Boolean)
+      .join(" | ");
+  }
+
+  if (typeof detail === "string") return detail;
+  if (typeof errorPayload?.message === "string") return errorPayload.message;
+
+  return "API request failed";
+}
+
 async function handleResponse(response) {
   if (!response.ok) {
     let errorMessage = "API request failed";
 
     try {
       const errorPayload = await response.json();
-      errorMessage = errorPayload?.detail || errorPayload?.message || errorMessage;
+      errorMessage = formatApiError(errorPayload);
     } catch {
       const errorText = await response.text();
       errorMessage = errorText || errorMessage;
@@ -121,6 +144,59 @@ export async function modifyAndReanalyse(analysisId, payload) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify(payload),
+  });
+
+  return handleResponse(response);
+}
+
+export async function getReferenceDataset() {
+  const response = await fetch(`${API_BASE_URL}/api/reference-dataset`);
+  return handleResponse(response);
+}
+
+export async function createReferenceEntry(payload) {
+  const response = await fetch(`${API_BASE_URL}/api/reference-dataset`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return handleResponse(response);
+}
+
+export async function updateReferenceEntry(referenceId, payload) {
+  const response = await fetch(`${API_BASE_URL}/api/reference-dataset/${referenceId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return handleResponse(response);
+}
+
+export async function deleteReferenceEntry(referenceId) {
+  const response = await fetch(`${API_BASE_URL}/api/reference-dataset/${referenceId}`, {
+    method: "DELETE",
+  });
+
+  return handleResponse(response);
+}
+
+export async function importReferenceDataset(file, projectId = "") {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  if (projectId) {
+    formData.append("project_id", String(projectId));
+  }
+
+  const response = await fetch(`${API_BASE_URL}/api/reference-dataset/import`, {
+    method: "POST",
+    body: formData,
   });
 
   return handleResponse(response);
