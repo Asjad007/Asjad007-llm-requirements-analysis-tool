@@ -1,6 +1,8 @@
-from typing import List, Optional
+﻿from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+import json
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -8,11 +10,21 @@ from app.config import settings
 from app.database import get_db
 from app.models import AnalysisResult, Project, Requirement, UserReview
 from app.review_status import REVIEW_STATUSES, normalize_review_status_or_raise
-from app.schemas import AnalysisResponse, RequirementCreate, ReviewCreate, ReviewResponse
-from app.services.mock_analysis_service import analyse_requirement as mock_analyse
+from app.schemas import AnalysisResponse, DocumentExtractionResponse, RequirementCreate, ReviewCreate, ReviewResponse
+from app.services.document_extraction_service import detect_document_extension, extract_document_text
 from app.services.llm_service import generate_analysis
+from app.services.mock_analysis_service import analyse_requirement as mock_analyse
+from app.services.requirement_extraction_service import clean_requirement_candidate, extract_requirements_from_text
 
 router = APIRouter(prefix="/api/analysis", tags=["Analysis"])
+
+FIELD_LEVEL_KEYS = [
+    "classification",
+    "priority",
+    "ambiguity",
+    "acceptance_criteria",
+    "test_cases",
+]
 
 
 class ModifyReanalyseRequest(BaseModel):
@@ -20,42 +32,31 @@ class ModifyReanalyseRequest(BaseModel):
     reviewer_notes: Optional[str] = None
 
 
-def split_requirements(text: str) -> List[str]:
-    if not text or not text.strip():
-        return []
-
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    requirements = []
-
-    for line in lines:
-        cleaned = line.strip()
-
-        for prefix in ["-", "*", "•"]:
-            if cleaned.startswith(prefix):
-                cleaned = cleaned[len(prefix):].strip()
-
-        parts = cleaned.split(" ", 1)
-        if len(parts) == 2:
-            first = parts[0].strip()
-            if first.endswith(".") or first.endswith(")"):
-                numeric_part = first[:-1]
-                if numeric_part.isdigit():
-                    cleaned = parts[1].strip()
-
-        if cleaned:
-            requirements.append(cleaned)
-
-    if not requirements:
-        requirements = [text.strip()]
-
-    return requirements
-
-
 def run_llm_or_mock(requirement_text: str, project_context: dict | None = None):
     if settings.USE_MOCK_LLM:
         return mock_analyse(requirement_text)
 
     return generate_analysis(requirement_text, project_context)
+
+
+def build_default_field_level_decisions(decision: str):
+    return {key: decision for key in FIELD_LEVEL_KEYS}
+
+
+def serialise_field_level_decisions(field_level_decisions: dict[str, str] | None):
+    if not field_level_decisions:
+        return None
+
+    cleaned: dict[str, str] = {}
+
+    for key in FIELD_LEVEL_KEYS:
+        value = field_level_decisions.get(key) if isinstance(field_level_decisions, dict) else None
+        if not value:
+            continue
+
+        cleaned[key] = normalize_review_status_or_raise(value)
+
+    return json.dumps(cleaned) if cleaned else None
 
 
 def build_analysis_response(requirement: Requirement, analysis_result: AnalysisResult) -> AnalysisResponse:
@@ -76,7 +77,7 @@ def build_analysis_response(requirement: Requirement, analysis_result: AnalysisR
         confidence_score=analysis_result.confidence_score,
         analysis_method=analysis_result.analysis_method,
         literature_basis=analysis_result.literature_basis,
-        created_at=analysis_result.created_at
+        created_at=analysis_result.created_at,
     )
 
 
@@ -84,12 +85,12 @@ def analyse_and_save_requirement(
     requirement_text: str,
     source_type: str,
     project: Project,
-    db: Session
+    db: Session,
 ) -> AnalysisResponse:
     requirement = Requirement(
         project_id=project.id,
         requirement_text=requirement_text.strip(),
-        source_type=source_type
+        source_type=source_type,
     )
 
     db.add(requirement)
@@ -118,7 +119,7 @@ def analyse_and_save_requirement(
         improvement_suggestion=analysis_output.get("improvement_suggestion", ""),
         confidence_score=analysis_output.get("confidence_score", 0.5),
         analysis_method=analysis_output.get("analysis_method", ""),
-        literature_basis=analysis_output.get("literature_basis", "")
+        literature_basis=analysis_output.get("literature_basis", ""),
     )
 
     db.add(analysis_result)
@@ -128,10 +129,37 @@ def analyse_and_save_requirement(
     return build_analysis_response(requirement, analysis_result)
 
 
+@router.post("/extract-document", response_model=DocumentExtractionResponse)
+async def extract_requirement_document(file: UploadFile = File(...)):
+    extension = detect_document_extension(file.filename or "")
+    file_bytes = await file.read()
+
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="The uploaded document is empty.")
+
+    extracted_text = extract_document_text(file, file_bytes)
+
+    if not extracted_text:
+        raise HTTPException(status_code=400, detail="No readable text was found in the uploaded document.")
+
+    requirements = extract_requirements_from_text(extracted_text)
+
+    if not requirements:
+        raise HTTPException(status_code=400, detail="No requirements could be extracted from the uploaded document.")
+
+    return DocumentExtractionResponse(
+        filename=file.filename or "document",
+        file_type=extension.lstrip(".").upper(),
+        extracted_text=extracted_text,
+        requirements=requirements,
+        requirement_count=len(requirements),
+    )
+
+
 @router.post("/analyse", response_model=AnalysisResponse)
 def analyse_requirement_endpoint(
     payload: RequirementCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     project = db.query(Project).filter(Project.id == payload.project_id).first()
 
@@ -142,16 +170,24 @@ def analyse_requirement_endpoint(
         requirement_text=payload.requirement_text,
         source_type=payload.source_type,
         project=project,
-        db=db
+        db=db,
     )
 
 
 @router.post("/batch", response_model=List[AnalysisResponse])
 def analyse_batch_requirements(
     payload: RequirementCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    detected_requirements = split_requirements(payload.requirement_text)
+    detected_requirements = []
+
+    for requirement in payload.requirements or []:
+        cleaned_requirement = clean_requirement_candidate(requirement)
+        if cleaned_requirement:
+            detected_requirements.append(cleaned_requirement)
+
+    if not detected_requirements:
+        detected_requirements = extract_requirements_from_text(payload.requirement_text)
 
     if not detected_requirements:
         raise HTTPException(status_code=400, detail="No valid requirements found")
@@ -168,7 +204,7 @@ def analyse_batch_requirements(
             requirement_text=requirement_text,
             source_type=payload.source_type,
             project=project,
-            db=db
+            db=db,
         )
         results.append(result)
 
@@ -179,7 +215,7 @@ def analyse_batch_requirements(
 def modify_and_reanalyse_requirement(
     analysis_id: int,
     payload: ModifyReanalyseRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     original_analysis = (
         db.query(AnalysisResult)
@@ -200,7 +236,7 @@ def modify_and_reanalyse_requirement(
         requirement_text=payload.modified_requirement_text.strip(),
         source_type="human_modified",
         project=original_analysis.requirement.project,
-        db=db
+        db=db,
     )
 
     modified_analysis = (
@@ -214,6 +250,9 @@ def modify_and_reanalyse_requirement(
         analysis_result_id=analysis_id,
         refined_analysis_result_id=modified_response.analysis_id,
         decision=REVIEW_STATUSES["MODIFIED"],
+        field_level_decisions=serialise_field_level_decisions(
+            build_default_field_level_decisions(REVIEW_STATUSES["MODIFIED"])
+        ),
         reviewer_notes=payload.reviewer_notes.strip() if payload.reviewer_notes else None,
         review_notes=payload.reviewer_notes.strip() if payload.reviewer_notes else None,
         modified_requirement_type=modified_analysis.requirement_type,
@@ -223,7 +262,7 @@ def modify_and_reanalyse_requirement(
         **build_final_review_fields(
             payload.modified_requirement_text.strip(),
             modified_analysis,
-        )
+        ),
     )
 
     db.add(review)
@@ -237,7 +276,7 @@ def modify_and_reanalyse_requirement(
 def review_analysis_result(
     analysis_id: int,
     payload: ReviewCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     analysis_result = (
         db.query(AnalysisResult)
@@ -254,12 +293,14 @@ def review_analysis_result(
         raise HTTPException(status_code=400, detail="Rejection reason is required")
 
     final_fields = {}
+    field_level_decisions = payload.field_level_decisions or {}
 
     if normalised_decision == REVIEW_STATUSES["ACCEPTED"]:
         final_fields = build_final_review_fields(
             analysis_result.requirement.requirement_text if analysis_result.requirement else "",
             analysis_result,
         )
+        field_level_decisions = build_default_field_level_decisions(REVIEW_STATUSES["ACCEPTED"])
     elif normalised_decision == REVIEW_STATUSES["MODIFIED"]:
         if not payload.final_refined_requirement or not payload.final_refined_requirement.strip():
             raise HTTPException(status_code=400, detail="Final refined requirement is required for modified reviews")
@@ -272,11 +313,16 @@ def review_analysis_result(
             "final_acceptance_criteria": payload.final_acceptance_criteria,
             "final_test_cases": payload.final_test_cases,
         }
+        if not field_level_decisions:
+            field_level_decisions = build_default_field_level_decisions(REVIEW_STATUSES["ACCEPTED"])
+    elif normalised_decision == REVIEW_STATUSES["REJECTED"] and not field_level_decisions:
+        field_level_decisions = build_default_field_level_decisions(REVIEW_STATUSES["REJECTED"])
 
     review = UserReview(
         requirement_id=analysis_result.requirement_id,
         analysis_result_id=analysis_id,
         decision=normalised_decision,
+        field_level_decisions=serialise_field_level_decisions(field_level_decisions),
         reviewer_notes=payload.reviewer_notes.strip() if payload.reviewer_notes else None,
         review_notes=payload.reviewer_notes.strip() if payload.reviewer_notes else None,
         rejection_reason=payload.rejection_reason.strip() if payload.rejection_reason else None,
@@ -284,7 +330,7 @@ def review_analysis_result(
         modified_priority=final_fields.get("final_priority"),
         modified_acceptance_criteria=final_fields.get("final_acceptance_criteria"),
         modified_test_case=final_fields.get("final_test_cases"),
-        **final_fields
+        **final_fields,
     )
 
     db.add(review)
@@ -302,11 +348,12 @@ def review_analysis_result(
         final_ambiguity_status=review.final_ambiguity_status,
         final_acceptance_criteria=review.final_acceptance_criteria,
         final_test_cases=review.final_test_cases,
+        field_level_decisions=json.loads(review.field_level_decisions) if review.field_level_decisions else None,
         reviewer_notes=review.reviewer_notes,
         rejection_reason=review.rejection_reason,
         reviewed_at=review.reviewed_at,
         created_at=review.created_at,
-        updated_at=review.updated_at
+        updated_at=review.updated_at,
     )
 
 

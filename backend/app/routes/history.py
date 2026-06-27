@@ -1,3 +1,4 @@
+import json
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -26,6 +27,14 @@ def build_history_item(result, latest_review):
         final_priority = latest_review.final_priority or latest_review.modified_priority
         final_acceptance_criteria = latest_review.final_acceptance_criteria or latest_review.modified_acceptance_criteria
         final_test_cases = latest_review.final_test_cases or latest_review.modified_test_case
+
+    field_level_decisions = None
+
+    if latest_review and latest_review.field_level_decisions:
+        try:
+            field_level_decisions = json.loads(latest_review.field_level_decisions)
+        except json.JSONDecodeError:
+            field_level_decisions = None
 
     return HistoryItem(
         analysis_id=result.id,
@@ -59,6 +68,7 @@ def build_history_item(result, latest_review):
         final_ambiguity_status=latest_review.final_ambiguity_status if latest_review else None,
         final_acceptance_criteria=final_acceptance_criteria,
         final_test_cases=final_test_cases,
+        field_level_decisions=field_level_decisions,
         refined_analysis_result_id=latest_review.refined_analysis_result_id if latest_review else None,
         review_notes=reviewer_notes,
         modified_requirement_type=final_type,

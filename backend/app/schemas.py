@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -8,6 +8,15 @@ class RequirementCreate(BaseModel):
     requirement_text: str = Field(..., min_length=5)
     source_type: str = "manual"
     project_id: int
+    requirements: Optional[List[str]] = None
+
+
+class DocumentExtractionResponse(BaseModel):
+    filename: str
+    file_type: str
+    extracted_text: str
+    requirements: List[str]
+    requirement_count: int
 
 
 class AnalysisResponse(BaseModel):
@@ -38,6 +47,7 @@ class ReviewCreate(BaseModel):
     final_ambiguity_status: Optional[str] = None
     final_acceptance_criteria: Optional[str] = None
     final_test_cases: Optional[str] = None
+    field_level_decisions: Optional[Dict[str, str]] = None
     reviewer_notes: Optional[str] = None
     rejection_reason: Optional[str] = None
 
@@ -53,6 +63,7 @@ class ReviewResponse(BaseModel):
     final_ambiguity_status: Optional[str] = None
     final_acceptance_criteria: Optional[str] = None
     final_test_cases: Optional[str] = None
+    field_level_decisions: Optional[Dict[str, str]] = None
     reviewer_notes: Optional[str] = None
     rejection_reason: Optional[str] = None
     reviewed_at: datetime
@@ -93,6 +104,7 @@ class HistoryItem(BaseModel):
     final_ambiguity_status: Optional[str] = None
     final_acceptance_criteria: Optional[str] = None
     final_test_cases: Optional[str] = None
+    field_level_decisions: Optional[Dict[str, str]] = None
     refined_analysis_result_id: Optional[int] = None
 
     # Compatibility aliases for existing frontend tables
@@ -134,3 +146,36 @@ class ProjectContext(BaseModel):
     name: str
     description: Optional[str] = None
     domain_system_type: Optional[str] = None
+
+
+class ReferenceRequirementBase(BaseModel):
+    project_id: Optional[int] = None
+    requirement_id: Optional[int] = None
+    original_requirement_text: str = Field(..., min_length=3)
+    reference_type: Optional[str] = None
+    reference_priority: Optional[str] = None
+    reference_ambiguity_status: Optional[str] = None
+    reference_acceptance_criteria: Optional[str] = None
+    reference_test_cases: Optional[str] = None
+    reference_notes: Optional[str] = None
+
+
+class ReferenceRequirementCreate(ReferenceRequirementBase):
+    pass
+
+
+class ReferenceRequirementUpdate(ReferenceRequirementBase):
+    pass
+
+
+class ReferenceRequirementResponse(ReferenceRequirementBase):
+    id: int
+    project_name: Optional[str] = None
+    linked_requirement_text: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ReferenceDatasetImportResponse(BaseModel):
+    imported_count: int
+    linked_count: int

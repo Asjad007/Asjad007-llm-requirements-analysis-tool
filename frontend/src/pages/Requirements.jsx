@@ -1,19 +1,32 @@
 import { useMemo, useState } from 'react';
 import RequirementsDataTable from '../components/RequirementsDataTable';
 import RequirementsRepositoryDataTable from '../components/RequirementsRepositoryDataTable';
+import { REVIEW_STATUSES, normalizeReviewStatus } from '../utils/reviewStatuses';
 
-export default function Requirements({ title, subtitle, history, projects = [], isLoading, error, onRefresh }) {
-  const isRepositoryPage = title === 'Requirements Repository';
+export default function Requirements({ title, subtitle, history, projects = [], isLoading, error, onRefresh, mode = 'repository', onNavigate }) {
+  const isRepositoryPage = mode === 'repository';
   const TableComponent = isRepositoryPage ? RequirementsRepositoryDataTable : RequirementsDataTable;
   const [projectFilter, setProjectFilter] = useState('');
   const filteredHistory = useMemo(
-    () => (
-      projectFilter
-        ? history.filter((item) => String(item.project_id || '') === String(projectFilter))
-        : history
-    ),
-    [history, projectFilter]
+    () => {
+      const scopedHistory = history.filter((item) => {
+        if (mode === 'history') {
+          return normalizeReviewStatus(item.review_decision) !== REVIEW_STATUSES.PENDING;
+        }
+
+        return true;
+      });
+
+      return projectFilter
+        ? scopedHistory.filter((item) => String(item.project_id || '') === String(projectFilter))
+        : scopedHistory;
+    },
+    [history, mode, projectFilter]
   );
+
+  const emptyMessage = mode === 'history'
+    ? 'No completed review history is available yet.'
+    : 'No requirements are available yet. Upload and analyse requirements to populate the repository.';
 
   return (
     <section className={`panel page-panel data-page-panel ${isRepositoryPage ? 'repository-page-panel' : ''}`}>
@@ -33,7 +46,14 @@ export default function Requirements({ title, subtitle, history, projects = [], 
         </label>
       </div>
       {error && <div className="error-message">{error}</div>}
-      <TableComponent history={filteredHistory} onRefresh={onRefresh} isLoading={isLoading} />
+      <TableComponent
+        history={filteredHistory}
+        onRefresh={onRefresh}
+        isLoading={isLoading}
+        emptyMessage={emptyMessage}
+        viewMode={mode}
+        onNavigate={onNavigate}
+      />
     </section>
   );
 }

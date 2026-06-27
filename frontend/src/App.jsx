@@ -9,8 +9,10 @@ import Analyse from './pages/Analyse';
 import ModulePage from './pages/ModulePage';
 import Validation from './pages/Validation';
 import Evaluation from './pages/Evaluation';
+import Reports from './pages/Reports';
+import ReferenceDataset from './pages/ReferenceDataset';
 import Settings from './pages/Settings';
-import { getHistory, getProjects } from './services/api';
+import { getHistory, getProjects, getReferenceDataset } from './services/api';
 import { REVIEW_STATUSES, isReviewedStatus, normalizeReviewStatus } from './utils/reviewStatuses';
 import './styles/main.css';
 
@@ -26,8 +28,9 @@ const MODULES = {
   testcases: 'Test Case Generation',
   validation: 'Human Validation',
   history: 'Review History',
-  evaluation: 'Evaluation Metrics',
-  reports: 'Reports',
+  evaluation: 'Human-in-the-Loop Evaluation Metrics',
+  reference: 'Reference Dataset',
+  reports: 'Research Reports',
   settings: 'Settings'
 };
 
@@ -40,8 +43,11 @@ export default function App() {
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [historyError, setHistoryError] = useState('');
   const [projectsError, setProjectsError] = useState('');
+  const [referenceEntries, setReferenceEntries] = useState([]);
+  const [referenceError, setReferenceError] = useState('');
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isLoadingProjects, setIsLoadingProjects] = useState(false);
+  const [isLoadingReferenceEntries, setIsLoadingReferenceEntries] = useState(false);
   const navigationFrame = useRef(null);
 
   async function refreshHistory() {
@@ -77,8 +83,21 @@ export default function App() {
     }
   }
 
+  async function refreshReferenceEntries() {
+    setIsLoadingReferenceEntries(true);
+    setReferenceError('');
+    try {
+      const data = await getReferenceDataset();
+      setReferenceEntries(Array.isArray(data) ? data : []);
+    } catch (error) {
+      setReferenceError(error.message || 'Failed to load reference dataset.');
+    } finally {
+      setIsLoadingReferenceEntries(false);
+    }
+  }
+
   async function refreshAllData() {
-    await Promise.all([refreshHistory(), refreshProjects()]);
+    await Promise.all([refreshHistory(), refreshProjects(), refreshReferenceEntries()]);
   }
 
   useEffect(() => {
@@ -168,12 +187,14 @@ export default function App() {
       return (
         <Requirements
           title={activePage === 'history' ? 'Review History' : 'Requirements Repository'}
-          subtitle={activePage === 'history' ? 'Saved requirement analysis records with human validation decisions.' : 'Central repository of analysed requirements and structured RE outputs.'}
+          subtitle={activePage === 'history' ? 'Audit trail of completed human validation decisions.' : 'Master catalogue of analysed requirements and lifecycle status.'}
           history={history}
           projects={projects}
           isLoading={isLoadingHistory}
           error={historyError || projectsError}
           onRefresh={refreshAllData}
+          onNavigate={handleNavigate}
+          mode={activePage === 'history' ? 'history' : 'repository'}
         />
       );
     }
@@ -194,8 +215,25 @@ export default function App() {
       return <Validation history={history} stats={stats} onRefresh={refreshAllData} />;
     }
 
-    if (activePage === 'evaluation' || activePage === 'reports') {
-      return <Evaluation title={activePage === 'reports' ? 'Reports' : 'Evaluation Metrics'} history={history} stats={stats} onRefresh={refreshAllData} projects={projects} />;
+    if (activePage === 'evaluation') {
+      return <Evaluation history={history} referenceEntries={referenceEntries} onRefresh={refreshAllData} projects={projects} />;
+    }
+
+    if (activePage === 'reference') {
+      return (
+        <ReferenceDataset
+          references={referenceEntries}
+          projects={projects}
+          history={history}
+          isLoading={isLoadingReferenceEntries}
+          error={referenceError}
+          onRefresh={refreshAllData}
+        />
+      );
+    }
+
+    if (activePage === 'reports') {
+      return <Reports history={history} referenceEntries={referenceEntries} projects={projects} onRefresh={refreshAllData} />;
     }
 
     if (activePage === 'settings') return <Settings />;
@@ -203,12 +241,8 @@ export default function App() {
     return (
       <ModulePage
         moduleKey={activePage}
-        title={pageTitle}
         history={history}
         onAnalysed={refreshAllData}
-        projects={projects}
-        selectedProjectId={selectedProjectId}
-        onProjectChange={setSelectedProjectId}
       />
     );
   }
