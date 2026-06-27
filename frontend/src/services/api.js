@@ -1,4 +1,7 @@
-const API_BASE_URL = "http://127.0.0.1:8000";
+const API_BASE_URLS = [
+  "http://127.0.0.1:8000",
+  "http://localhost:8000",
+];
 
 function formatApiError(errorPayload) {
   const detail = errorPayload?.detail;
@@ -40,8 +43,22 @@ async function handleResponse(response) {
   return response.json();
 }
 
+async function fetchWithBaseFallback(path, options = {}) {
+  let lastError = null;
+
+  for (const baseUrl of API_BASE_URLS) {
+    try {
+      return await fetch(`${baseUrl}${path}`, options);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error("Unable to reach the backend API.");
+}
+
 export async function analyseRequirement(payload) {
-  const response = await fetch(`${API_BASE_URL}/api/analysis/analyse`, {
+  const response = await fetchWithBaseFallback(`/api/analysis/analyse`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -53,7 +70,7 @@ export async function analyseRequirement(payload) {
 }
 
 export async function analyseBatchRequirements(payload) {
-  const response = await fetch(`${API_BASE_URL}/api/analysis/batch`, {
+  const response = await fetchWithBaseFallback(`/api/analysis/batch`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -68,7 +85,7 @@ export async function extractRequirementsDocument(file) {
   const formData = new FormData();
   formData.append("file", file);
 
-  const response = await fetch(`${API_BASE_URL}/api/analysis/extract-document`, {
+  const response = await fetchWithBaseFallback(`/api/analysis/extract-document`, {
     method: "POST",
     body: formData,
   });
@@ -77,7 +94,7 @@ export async function extractRequirementsDocument(file) {
 }
 
 export async function reviewAnalysis(analysisId, payload) {
-  const response = await fetch(`${API_BASE_URL}/api/analysis/review/${analysisId}`, {
+  const response = await fetchWithBaseFallback(`/api/analysis/review/${analysisId}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -89,17 +106,17 @@ export async function reviewAnalysis(analysisId, payload) {
 }
 
 export async function getHistory() {
-  const response = await fetch(`${API_BASE_URL}/api/history`);
+  const response = await fetchWithBaseFallback(`/api/history`);
   return handleResponse(response);
 }
 
 export async function getProjects() {
-  const response = await fetch(`${API_BASE_URL}/api/projects`);
+  const response = await fetchWithBaseFallback(`/api/projects`);
   return handleResponse(response);
 }
 
 export async function createProject(payload) {
-  const response = await fetch(`${API_BASE_URL}/api/projects`, {
+  const response = await fetchWithBaseFallback(`/api/projects`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -111,7 +128,7 @@ export async function createProject(payload) {
 }
 
 export async function updateProject(projectId, payload) {
-  const response = await fetch(`${API_BASE_URL}/api/projects/${projectId}`, {
+  const response = await fetchWithBaseFallback(`/api/projects/${projectId}`, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
@@ -123,7 +140,7 @@ export async function updateProject(projectId, payload) {
 }
 
 export async function deleteProject(projectId) {
-  const response = await fetch(`${API_BASE_URL}/api/projects/${projectId}`, {
+  const response = await fetchWithBaseFallback(`/api/projects/${projectId}`, {
     method: "DELETE",
   });
 
@@ -131,14 +148,14 @@ export async function deleteProject(projectId) {
 }
 
 export async function deleteHistoryItem(analysisId) {
-  const response = await fetch(`${API_BASE_URL}/api/history/${analysisId}`, {
+  const response = await fetchWithBaseFallback(`/api/history/${analysisId}`, {
     method: "DELETE",
   });
 
   return handleResponse(response);
 }
 export async function modifyAndReanalyse(analysisId, payload) {
-  const response = await fetch(`${API_BASE_URL}/api/analysis/modify-reanalyse/${analysisId}`, {
+  const response = await fetchWithBaseFallback(`/api/analysis/modify-reanalyse/${analysisId}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -150,12 +167,12 @@ export async function modifyAndReanalyse(analysisId, payload) {
 }
 
 export async function getReferenceDataset() {
-  const response = await fetch(`${API_BASE_URL}/api/reference-dataset`);
+  const response = await fetchWithBaseFallback(`/api/reference-dataset`);
   return handleResponse(response);
 }
 
 export async function createReferenceEntry(payload) {
-  const response = await fetch(`${API_BASE_URL}/api/reference-dataset`, {
+  const response = await fetchWithBaseFallback(`/api/reference-dataset`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -167,7 +184,7 @@ export async function createReferenceEntry(payload) {
 }
 
 export async function updateReferenceEntry(referenceId, payload) {
-  const response = await fetch(`${API_BASE_URL}/api/reference-dataset/${referenceId}`, {
+  const response = await fetchWithBaseFallback(`/api/reference-dataset/${referenceId}`, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
@@ -179,7 +196,7 @@ export async function updateReferenceEntry(referenceId, payload) {
 }
 
 export async function deleteReferenceEntry(referenceId) {
-  const response = await fetch(`${API_BASE_URL}/api/reference-dataset/${referenceId}`, {
+  const response = await fetchWithBaseFallback(`/api/reference-dataset/${referenceId}`, {
     method: "DELETE",
   });
 
@@ -194,7 +211,7 @@ export async function importReferenceDataset(file, projectId = "") {
     formData.append("project_id", String(projectId));
   }
 
-  const response = await fetch(`${API_BASE_URL}/api/reference-dataset/import`, {
+  const response = await fetchWithBaseFallback(`/api/reference-dataset/import`, {
     method: "POST",
     body: formData,
   });
