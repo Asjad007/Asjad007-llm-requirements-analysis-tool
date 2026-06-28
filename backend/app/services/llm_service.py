@@ -1,6 +1,6 @@
 import json
 import os
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from openai import OpenAI
 
@@ -42,8 +42,8 @@ def _normalise_result(data: Dict[str, Any]) -> Dict[str, Any]:
 
     return data
 
+def generate_analysis(requirement_text: str, project_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
 
-def generate_analysis(requirement_text: str, project_context: Dict[str, Any] | None = None) -> Dict[str, Any]:
     api_key = os.getenv("OPENAI_API_KEY", "")
     model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 

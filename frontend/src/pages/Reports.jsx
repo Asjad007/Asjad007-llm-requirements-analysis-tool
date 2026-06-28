@@ -61,6 +61,16 @@ function getNumericConfidence(item) {
   return Number.isFinite(value) ? value : null;
 }
 
+function getRefinedAnalysisId(item) {
+  return (
+    item?.refined_analysis_result_id ||
+    item?.refined_analysis_id ||
+    item?.modified_analysis_id ||
+    item?.modified_into_analysis_id ||
+    null
+  );
+}
+
 function averageConfidence(items) {
   const values = items.map(getNumericConfidence).filter((value) => value !== null);
   if (!values.length) return null;
@@ -131,6 +141,13 @@ function inferFieldDecisionSummary(item) {
     };
   }
 
+  if (overallDecision === REVIEW_STATUSES.REJECTED) {
+    return FIELD_REVIEW_KEYS.reduce((accumulator, key) => {
+      accumulator[key] = REVIEW_STATUSES.REJECTED;
+      return accumulator;
+    }, {});
+  }
+
   return FIELD_REVIEW_KEYS.reduce((accumulator, key) => {
     accumulator[key] = null;
     return accumulator;
@@ -148,15 +165,41 @@ function buildInterpretation(reportData) {
     return "Human review decisions are available, but field-level validation evidence is not yet sufficient to interpret agreement by Requirements Engineering task safely.";
   }
 
-  const highestAgreement = [...availableFields].sort((left, right) => (right.agreementRate || 0) - (left.agreementRate || 0))[0];
-  const lowestAgreement = [...availableFields].sort((left, right) => (left.agreementRate || 0) - (right.agreementRate || 0))[0];
-  const mostIntervention = [...availableFields].sort((left, right) => right.humanIntervention - left.humanIntervention)[0];
+  const agreementRates = availableFields.map((item) => item.agreementRate);
+  const interventionCounts = availableFields.map((item) => item.humanIntervention);
+
+  const allAgreementEqual = agreementRates.every((rate) => rate === agreementRates[0]);
+  const allInterventionEqual = interventionCounts.every((count) => count === interventionCounts[0]);
 
   const referenceNote = reportData.referenceComparison?.linkedCount
     ? ` Gold-standard comparison is available for ${reportData.referenceComparison.linkedCount} linked reference entries and should be interpreted as alignment with manual reference labels rather than a claim of full correctness.`
     : "";
 
-  return `The results suggest that ${highestAgreement.label.toLowerCase()} received higher human agreement than ${lowestAgreement.label.toLowerCase()}, while ${mostIntervention.label.toLowerCase()} required the most human intervention. This pattern indicates that some structured categorisation tasks may be more reliable in the current decision-support workflow than generative specification tasks such as acceptance criteria or test cases.${referenceNote}`;
+  if (allAgreementEqual && allInterventionEqual) {
+    const first = availableFields[0];
+
+    return `All Requirements Engineering output fields show the same validation pattern in the selected dataset: ${formatPercent(
+      first.agreementRate
+    )} accepted/agreed, ${formatPercent(
+      first.modificationRate
+    )} modified, and ${formatPercent(
+      first.rejectionRate
+    )} rejected. This indicates that the LLM produced complete outputs, but human reviewers still made meaningful corrections to improve requirement quality.${referenceNote}`;
+  }
+
+  const highestAgreement = [...availableFields].sort(
+    (left, right) => (right.agreementRate || 0) - (left.agreementRate || 0)
+  )[0];
+
+  const lowestAgreement = [...availableFields].sort(
+    (left, right) => (left.agreementRate || 0) - (right.agreementRate || 0)
+  )[0];
+
+  const mostIntervention = [...availableFields].sort(
+    (left, right) => right.humanIntervention - left.humanIntervention
+  )[0];
+
+  return `${highestAgreement.label} has the highest human agreement, while ${lowestAgreement.label} shows the lowest agreement overall. ${mostIntervention.label} shows the most human intervention in the selected data, suggesting reviewers needed more correction effort there than in other Requirements Engineering outputs.${referenceNote}`;
 }
 
 function ReportSection({ title, children }) {
@@ -189,7 +232,9 @@ function EvidenceCard({ item }) {
     item.priority_level ? `Priority: ${item.priority_level}` : null,
     item.ambiguity_status ? `Ambiguity: ${item.ambiguity_status}` : null,
     getNumericConfidence(item) !== null ? `Confidence: ${Math.round(Number(item.confidence_score) * 100)}%` : null,
-  ].filter(Boolean).join(" | ");
+  ]
+    .filter(Boolean)
+    .join(" | ");
 
   return (
     <article className="report-example-card">
@@ -197,14 +242,27 @@ function EvidenceCard({ item }) {
         <strong>{`REQ-${String(item.analysis_id).padStart(3, "0")}`}</strong>
         <span className="history-subtext">{decision}</span>
       </div>
-      <p><strong>Original requirement:</strong> {item.original_text}</p>
-      <p><strong>LLM output summary:</strong> {llmSummary || "Not available"}</p>
+
+      <p>
+        <strong>Original requirement:</strong> {item.original_text}
+      </p>
+
+      <p>
+        <strong>LLM output summary:</strong> {llmSummary || "Not available"}
+      </p>
+
       {decision === REVIEW_STATUSES.MODIFIED && (
-        <p><strong>Human final output:</strong> {item.final_refined_requirement || "Not available"}</p>
+        <p>
+          <strong>Human final output:</strong> {item.final_refined_requirement || "Not available"}
+        </p>
       )}
+
       {decision === REVIEW_STATUSES.ACCEPTED && (
-        <p><strong>Human final output:</strong> Accepted as generated.</p>
+        <p>
+          <strong>Human final output:</strong> Accepted as generated.
+        </p>
       )}
+
       <p>
         <strong>{decision === REVIEW_STATUSES.REJECTED ? "Rejection reason" : "Reviewer notes"}:</strong>{" "}
         {item.rejection_reason || item.reviewer_notes || item.review_notes || "Not available"}
@@ -238,6 +296,27 @@ export default function Reports({ history, referenceEntries = [], projects = [],
       return matchesProject && matchesFrom && matchesTo;
     });
   }, [dateFrom, dateTo, history, selectedProjectId]);
+
+  const refinedAnalysisIds = useMemo(() => {
+    const ids = new Set();
+
+    filteredHistory.forEach((item) => {
+      const refinedId = getRefinedAnalysisId(item);
+      if (refinedId) {
+        ids.add(Number(refinedId));
+      }
+    });
+
+    return ids;
+  }, [filteredHistory]);
+
+  const validationHistory = useMemo(() => {
+    return filteredHistory.filter((item) => {
+      const analysisId = Number(item.analysis_id || item.id);
+      return !refinedAnalysisIds.has(analysisId);
+    });
+  }, [filteredHistory, refinedAnalysisIds]);
+
   const filteredReferenceEntries = useMemo(() => {
     return referenceEntries.filter((item) => {
       const matchesProject = selectedProjectId ? String(item.project_id || "") === String(selectedProjectId) : true;
@@ -251,11 +330,27 @@ export default function Reports({ history, referenceEntries = [], projects = [],
 
   const reportData = useMemo(() => {
     const totalAnalysed = filteredHistory.length;
-    const reviewedItems = filteredHistory.filter((item) => normalizeReviewStatus(item.review_decision) !== REVIEW_STATUSES.PENDING);
-    const pendingItems = filteredHistory.filter((item) => normalizeReviewStatus(item.review_decision) === REVIEW_STATUSES.PENDING);
-    const acceptedItems = reviewedItems.filter((item) => normalizeReviewStatus(item.review_decision) === REVIEW_STATUSES.ACCEPTED);
-    const modifiedItems = reviewedItems.filter((item) => normalizeReviewStatus(item.review_decision) === REVIEW_STATUSES.MODIFIED);
-    const rejectedItems = reviewedItems.filter((item) => normalizeReviewStatus(item.review_decision) === REVIEW_STATUSES.REJECTED);
+    const totalValidationItems = validationHistory.length;
+
+    const reviewedItems = validationHistory.filter(
+      (item) => normalizeReviewStatus(item.review_decision) !== REVIEW_STATUSES.PENDING
+    );
+
+    const pendingItems = validationHistory.filter(
+      (item) => normalizeReviewStatus(item.review_decision) === REVIEW_STATUSES.PENDING
+    );
+
+    const acceptedItems = reviewedItems.filter(
+      (item) => normalizeReviewStatus(item.review_decision) === REVIEW_STATUSES.ACCEPTED
+    );
+
+    const modifiedItems = reviewedItems.filter(
+      (item) => normalizeReviewStatus(item.review_decision) === REVIEW_STATUSES.MODIFIED
+    );
+
+    const rejectedItems = reviewedItems.filter(
+      (item) => normalizeReviewStatus(item.review_decision) === REVIEW_STATUSES.REJECTED
+    );
 
     const reviewedCount = reviewedItems.length;
     const acceptedCount = acceptedItems.length;
@@ -272,6 +367,7 @@ export default function Reports({ history, referenceEntries = [], projects = [],
       reviewedItems.forEach((item) => {
         const decision = inferFieldDecisionSummary(item)[key];
         if (!decision) return;
+
         available += 1;
         if (decision === REVIEW_STATUSES.ACCEPTED) accepted += 1;
         if (decision === REVIEW_STATUSES.MODIFIED) modified += 1;
@@ -286,6 +382,8 @@ export default function Reports({ history, referenceEntries = [], projects = [],
         rejected,
         available,
         agreementRate: available ? accepted / available : null,
+        modificationRate: available ? modified / available : null,
+        rejectionRate: available ? rejected / available : null,
         humanIntervention: modified + rejected,
       };
     });
@@ -295,12 +393,13 @@ export default function Reports({ history, referenceEntries = [], projects = [],
     return {
       generatedAt: new Date().toLocaleString(),
       totalAnalysed,
+      totalValidationItems,
       reviewedCount,
       pendingCount,
       acceptedCount,
       modifiedCount,
       rejectedCount,
-      reviewRate: totalAnalysed ? reviewedCount / totalAnalysed : 0,
+      reviewRate: totalValidationItems ? reviewedCount / totalValidationItems : 0,
       acceptanceRate: reviewedCount ? acceptedCount / reviewedCount : 0,
       modificationRate: reviewedCount ? modifiedCount / reviewedCount : 0,
       rejectionRate: reviewedCount ? rejectedCount / reviewedCount : 0,
@@ -326,23 +425,24 @@ export default function Reports({ history, referenceEntries = [], projects = [],
       },
       referenceComparison,
     };
-  }, [filteredHistory, filteredReferenceEntries]);
+  }, [filteredHistory, validationHistory, filteredReferenceEntries]);
 
   const sectionEnabled = (key) => includedSections.includes(key);
 
   function toggleSection(key) {
-    setIncludedSections((previous) => (
+    setIncludedSections((previous) =>
       previous.includes(key)
         ? previous.filter((value) => value !== key)
         : [...previous, key]
-    ));
+    );
   }
 
   const summaryLines = [
     selectedProject ? `Project: ${selectedProject.name}` : "Project: All projects",
     `Report type: ${selectedReport.label}`,
     dateFrom || dateTo ? `Date filter: ${dateFrom || "Start"} to ${dateTo || "Now"}` : "Date filter: All available records",
-    `Included records: ${filteredHistory.length}`,
+    `Included analysis records: ${filteredHistory.length}`,
+    `Reviewer-facing validation items: ${validationHistory.length}`,
     `Included sections: ${includedSections.length}`,
   ];
 
@@ -382,6 +482,7 @@ export default function Reports({ history, referenceEntries = [], projects = [],
               <span>Date From</span>
               <input className="project-input" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
             </label>
+
             <label className="project-filter-label">
               <span>Date To</span>
               <input className="project-input" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
@@ -412,6 +513,7 @@ export default function Reports({ history, referenceEntries = [], projects = [],
         <div className="reports-summary-card">
           <h3>Report Contents</h3>
           <p>{selectedReport.description}</p>
+
           <div className="history-stack">
             {summaryLines.map((line) => (
               <div key={line} className="history-subtext">{line}</div>
@@ -434,6 +536,7 @@ export default function Reports({ history, referenceEntries = [], projects = [],
               <p>No manually labelled reference dataset has been added yet for this report scope. Human validation evidence is still included, while reference comparison remains unavailable until manual reference labels are added.</p>
             </div>
           )}
+
           <div className="report-preview-header">
             <div>
               <h3>{selectedReport.label}</h3>
@@ -449,7 +552,8 @@ export default function Reports({ history, referenceEntries = [], projects = [],
                   { label: "Project name", value: selectedProject?.name || "All projects" },
                   { label: "Description", value: selectedProject?.description || "Combined dataset across all projects." },
                   { label: "Domain / system type", value: selectedProject?.domain_system_type || "Multiple domains / not specified" },
-                  { label: "Total requirements", value: reportData.totalAnalysed },
+                  { label: "Validation items", value: reportData.totalValidationItems },
+                  { label: "Total analysed records", value: reportData.totalAnalysed },
                   { label: "Report generated date", value: reportData.generatedAt },
                 ]}
               />
@@ -460,9 +564,10 @@ export default function Reports({ history, referenceEntries = [], projects = [],
             <ReportSection title="B. Dataset Summary">
               <ReportMetricList
                 items={[
-                  { label: "Total analysed requirements", value: reportData.totalAnalysed },
-                  { label: "Reviewed requirements", value: reportData.reviewedCount },
-                  { label: "Pending requirements", value: reportData.pendingCount },
+                  { label: "Total analysed records", value: reportData.totalAnalysed },
+                  { label: "Reviewer-facing validation items", value: reportData.totalValidationItems },
+                  { label: "Reviewed validation items", value: reportData.reviewedCount },
+                  { label: "Pending validation items", value: reportData.pendingCount },
                   { label: "Accepted", value: reportData.acceptedCount },
                   { label: "Modified", value: reportData.modifiedCount },
                   { label: "Rejected", value: reportData.rejectedCount },
@@ -514,6 +619,7 @@ export default function Reports({ history, referenceEntries = [], projects = [],
                       <span>Rejected</span>
                       <span>Agreement rate</span>
                     </div>
+
                     {reportData.fieldAgreement.map((field) => (
                       <div key={field.key} className="report-simple-row">
                         <span>{field.label}</span>
@@ -553,6 +659,7 @@ export default function Reports({ history, referenceEntries = [], projects = [],
                           : <p className="history-subtext">No accepted examples are available in the selected scope.</p>}
                       </div>
                     </div>
+
                     <div>
                       <h4>Modified examples</h4>
                       <div className="report-evidence-grid">
@@ -561,6 +668,7 @@ export default function Reports({ history, referenceEntries = [], projects = [],
                           : <p className="history-subtext">No modified examples are available in the selected scope.</p>}
                       </div>
                     </div>
+
                     <div>
                       <h4>Rejected examples</h4>
                       <div className="report-evidence-grid">
@@ -597,6 +705,7 @@ export default function Reports({ history, referenceEntries = [], projects = [],
           {sectionEnabled("goldStandard") && filteredReferenceEntries.length > 0 && (
             <ReportSection title="Gold Standard Comparison">
               <p>These comparison metrics are calculated only for requirements linked to manually labelled reference data and should be interpreted as alignment with a manual reference dataset.</p>
+
               <ReportMetricList
                 items={[
                   { label: "Linked reference entries", value: reportData.referenceComparison.linkedCount },

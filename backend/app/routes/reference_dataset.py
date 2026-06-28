@@ -1,4 +1,5 @@
 import csv
+from typing import Optional
 import io
 from difflib import SequenceMatcher
 
@@ -16,15 +17,15 @@ from app.schemas import (
 
 router = APIRouter(prefix="/api/reference-dataset", tags=["Reference Dataset"])
 
-
-def normalize_text(value: str | None) -> str:
+def normalize_text(value: Optional[str]) -> str:
+ 
     return " ".join(str(value or "").strip().lower().split())
 
 
 def find_linked_requirement(
     db: Session,
     original_requirement_text: str,
-    project_id: int | None = None,
+    project_id: Optional[int] = None,
 ):
     query = db.query(Requirement)
 
@@ -174,7 +175,7 @@ def delete_reference_requirement(reference_id: int, db: Session = Depends(get_db
 @router.post("/import", response_model=ReferenceDatasetImportResponse)
 async def import_reference_dataset(
     file: UploadFile = File(...),
-    project_id: int | None = Form(default=None),
+    project_id: Optional[int] = Form(default=None),
     db: Session = Depends(get_db),
 ):
     if not (file.filename or "").lower().endswith(".csv"):

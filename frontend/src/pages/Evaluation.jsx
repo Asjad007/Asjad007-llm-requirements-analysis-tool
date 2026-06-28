@@ -29,6 +29,29 @@ function getNumericConfidence(item) {
   return Number.isFinite(value) ? value : null;
 }
 
+function normalizeValue(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function canInferTextDecision(originalValue, finalValue) {
+  const original = String(originalValue || "").trim();
+  const finalText = String(finalValue || "").trim();
+
+  if (!original && !finalText) return REVIEW_STATUSES.ACCEPTED;
+  if (!finalText) return null;
+  return original === finalText ? REVIEW_STATUSES.ACCEPTED : REVIEW_STATUSES.MODIFIED;
+}
+
+function getRefinedAnalysisId(item) {
+  return (
+    item?.refined_analysis_result_id ||
+    item?.refined_analysis_id ||
+    item?.modified_analysis_id ||
+    item?.modified_into_analysis_id ||
+    null
+  );
+}
+
 function inferEvaluationFieldDecisions(item) {
   const explicit = normalizeFieldReviewDecisions(item?.field_level_decisions);
   const hasExplicit = FIELD_REVIEW_KEYS.some((key) => explicit[key]);
@@ -66,23 +89,17 @@ function inferEvaluationFieldDecisions(item) {
     };
   }
 
+  if (overallDecision === REVIEW_STATUSES.REJECTED) {
+    return FIELD_REVIEW_KEYS.reduce((accumulator, key) => {
+      accumulator[key] = REVIEW_STATUSES.REJECTED;
+      return accumulator;
+    }, {});
+  }
+
   return FIELD_REVIEW_KEYS.reduce((accumulator, key) => {
     accumulator[key] = null;
     return accumulator;
   }, {});
-}
-
-function normalizeValue(value) {
-  return String(value || "").trim().toLowerCase();
-}
-
-function canInferTextDecision(originalValue, finalValue) {
-  const original = String(originalValue || "").trim();
-  const finalText = String(finalValue || "").trim();
-
-  if (!original && !finalText) return REVIEW_STATUSES.ACCEPTED;
-  if (!finalText) return null;
-  return original === finalText ? REVIEW_STATUSES.ACCEPTED : REVIEW_STATUSES.MODIFIED;
 }
 
 function buildInterpretation(interventionSummary, reviewedCount) {
@@ -96,42 +113,106 @@ function buildInterpretation(interventionSummary, reviewedCount) {
     return "Field-level review evidence is not yet available for the selected scope, so agreement by Requirements Engineering task cannot be interpreted safely.";
   }
 
-  const highestAgreement = [...availableTasks].sort((left, right) => (right.agreementRate || 0) - (left.agreementRate || 0))[0];
-  const lowestAgreement = [...availableTasks].sort((left, right) => (left.agreementRate || 0) - (right.agreementRate || 0))[0];
-  const mostIntervention = [...availableTasks].sort((left, right) => right.humanIntervention - left.humanIntervention)[0];
+  const agreementRates = availableTasks.map((item) => item.agreementRate);
+  const interventionCounts = availableTasks.map((item) => item.humanIntervention);
 
-  return `${highestAgreement.label} has the highest human agreement, while ${lowestAgreement.label} required the lowest agreement overall. ${mostIntervention.label} shows the most human intervention in the selected data, suggesting reviewers needed more correction effort there than in other Requirements Engineering outputs.`;
+  const allAgreementEqual = agreementRates.every((rate) => rate === agreementRates[0]);
+  const allInterventionEqual = interventionCounts.every((count) => count === interventionCounts[0]);
+
+  if (allAgreementEqual && allInterventionEqual) {
+    return `All Requirements Engineering output fields show the same validation pattern in the selected dataset: ${formatPercent(
+      availableTasks[0].agreementRate
+    )} accepted/agreed, ${formatPercent(
+      availableTasks[0].modificationRate
+    )} modified, and ${formatPercent(
+      availableTasks[0].rejectionRate
+    )} rejected. This indicates that the LLM produced complete outputs, but human reviewers still made meaningful corrections to improve requirement quality.`;
+  }
+
+  const highestAgreement = [...availableTasks].sort(
+    (left, right) => (right.agreementRate || 0) - (left.agreementRate || 0)
+  )[0];
+
+  const lowestAgreement = [...availableTasks].sort(
+    (left, right) => (left.agreementRate || 0) - (right.agreementRate || 0)
+  )[0];
+
+  const mostIntervention = [...availableTasks].sort(
+    (left, right) => right.humanIntervention - left.humanIntervention
+  )[0];
+
+  return `${highestAgreement.label} has the highest human agreement, while ${lowestAgreement.label} shows the lowest agreement overall. ${mostIntervention.label} shows the most human intervention in the selected data, suggesting reviewers needed more correction effort there than in other Requirements Engineering outputs.`;
 }
 
 export default function Evaluation({ history, referenceEntries = [], onRefresh, projects = [] }) {
   const [projectFilter, setProjectFilter] = useState("");
 
   const filteredHistory = useMemo(
-    () => (
+    () =>
       projectFilter
         ? history.filter((item) => String(item.project_id || "") === String(projectFilter))
-        : history
-    ),
+        : history,
     [history, projectFilter]
   );
+
+  const refinedAnalysisIds = useMemo(() => {
+    const ids = new Set();
+
+    filteredHistory.forEach((item) => {
+      const refinedId = getRefinedAnalysisId(item);
+      if (refinedId) {
+        ids.add(Number(refinedId));
+      }
+    });
+
+    return ids;
+  }, [filteredHistory]);
+
+  const validationHistory = useMemo(
+    () =>
+      filteredHistory.filter((item) => {
+        const analysisId = Number(item.analysis_id || item.id);
+        return !refinedAnalysisIds.has(analysisId);
+      }),
+    [filteredHistory, refinedAnalysisIds]
+  );
+
   const filteredReferenceEntries = useMemo(
-    () => (
+    () =>
       projectFilter
         ? referenceEntries.filter((item) => String(item.project_id || "") === String(projectFilter))
-        : referenceEntries
-    ),
+        : referenceEntries,
     [projectFilter, referenceEntries]
   );
 
   const metrics = useMemo(() => {
     const totalAnalysed = filteredHistory.length;
-    const reviewedItems = filteredHistory.filter((item) => normalizeReviewStatus(item.review_decision) !== REVIEW_STATUSES.PENDING);
+    const totalValidationItems = validationHistory.length;
+
+    const reviewedItems = validationHistory.filter(
+      (item) => normalizeReviewStatus(item.review_decision) !== REVIEW_STATUSES.PENDING
+    );
+
     const reviewedCount = reviewedItems.length;
-    const acceptedCount = reviewedItems.filter((item) => normalizeReviewStatus(item.review_decision) === REVIEW_STATUSES.ACCEPTED).length;
-    const modifiedCount = reviewedItems.filter((item) => normalizeReviewStatus(item.review_decision) === REVIEW_STATUSES.MODIFIED).length;
-    const rejectedCount = reviewedItems.filter((item) => normalizeReviewStatus(item.review_decision) === REVIEW_STATUSES.REJECTED).length;
-    const pendingCount = totalAnalysed - reviewedCount;
+
+    const acceptedCount = reviewedItems.filter(
+      (item) => normalizeReviewStatus(item.review_decision) === REVIEW_STATUSES.ACCEPTED
+    ).length;
+
+    const modifiedCount = reviewedItems.filter(
+      (item) => normalizeReviewStatus(item.review_decision) === REVIEW_STATUSES.MODIFIED
+    ).length;
+
+    const rejectedCount = reviewedItems.filter(
+      (item) => normalizeReviewStatus(item.review_decision) === REVIEW_STATUSES.REJECTED
+    ).length;
+
+    const pendingCount = validationHistory.filter(
+      (item) => normalizeReviewStatus(item.review_decision) === REVIEW_STATUSES.PENDING
+    ).length;
+
     const confidenceValues = filteredHistory.map(getNumericConfidence).filter((value) => value !== null);
+
     const averageConfidence = confidenceValues.length
       ? confidenceValues.reduce((sum, value) => sum + value, 0) / confidenceValues.length
       : null;
@@ -166,20 +247,38 @@ export default function Evaluation({ history, referenceEntries = [], onRefresh, 
       };
     });
 
-    const mostAcceptedTask = [...fieldSummaries].filter((item) => item.available).sort((left, right) => right.accepted - left.accepted)[0] || null;
-    const mostModifiedTask = [...fieldSummaries].filter((item) => item.available).sort((left, right) => right.modified - left.modified)[0] || null;
-    const mostRejectedTask = [...fieldSummaries].filter((item) => item.available).sort((left, right) => right.rejected - left.rejected)[0] || null;
-    const highestAgreementTask = [...fieldSummaries].filter((item) => item.agreementRate !== null).sort((left, right) => (right.agreementRate || 0) - (left.agreementRate || 0))[0] || null;
-    const lowestAgreementTask = [...fieldSummaries].filter((item) => item.agreementRate !== null).sort((left, right) => (left.agreementRate || 0) - (right.agreementRate || 0))[0] || null;
+    const mostAcceptedTask =
+      [...fieldSummaries].filter((item) => item.available).sort((left, right) => right.accepted - left.accepted)[0] ||
+      null;
+
+    const mostModifiedTask =
+      [...fieldSummaries].filter((item) => item.available).sort((left, right) => right.modified - left.modified)[0] ||
+      null;
+
+    const mostRejectedTask =
+      [...fieldSummaries].filter((item) => item.available).sort((left, right) => right.rejected - left.rejected)[0] ||
+      null;
+
+    const highestAgreementTask =
+      [...fieldSummaries]
+        .filter((item) => item.agreementRate !== null)
+        .sort((left, right) => (right.agreementRate || 0) - (left.agreementRate || 0))[0] || null;
+
+    const lowestAgreementTask =
+      [...fieldSummaries]
+        .filter((item) => item.agreementRate !== null)
+        .sort((left, right) => (left.agreementRate || 0) - (right.agreementRate || 0))[0] || null;
 
     const acceptedConfidence = reviewedItems
       .filter((item) => normalizeReviewStatus(item.review_decision) === REVIEW_STATUSES.ACCEPTED)
       .map(getNumericConfidence)
       .filter((value) => value !== null);
+
     const modifiedConfidence = reviewedItems
       .filter((item) => normalizeReviewStatus(item.review_decision) === REVIEW_STATUSES.MODIFIED)
       .map(getNumericConfidence)
       .filter((value) => value !== null);
+
     const rejectedConfidence = reviewedItems
       .filter((item) => normalizeReviewStatus(item.review_decision) === REVIEW_STATUSES.REJECTED)
       .map(getNumericConfidence)
@@ -189,12 +288,13 @@ export default function Evaluation({ history, referenceEntries = [], onRefresh, 
 
     return {
       totalAnalysed,
+      totalValidationItems,
       reviewedCount,
       pendingCount,
       acceptedCount,
       modifiedCount,
       rejectedCount,
-      reviewRate: totalAnalysed ? reviewedCount / totalAnalysed : 0,
+      reviewRate: totalValidationItems ? reviewedCount / totalValidationItems : 0,
       acceptanceRate: reviewedCount ? acceptedCount / reviewedCount : 0,
       modificationRate: reviewedCount ? modifiedCount / reviewedCount : 0,
       rejectionRate: reviewedCount ? rejectedCount / reviewedCount : 0,
@@ -213,7 +313,7 @@ export default function Evaluation({ history, referenceEntries = [], onRefresh, 
       acceptanceCoverage: filteredHistory.filter((item) => item.acceptance_criteria).length / completenessTotal,
       testCaseCoverage: filteredHistory.filter((item) => item.test_case).length / completenessTotal,
     };
-  }, [filteredHistory]);
+  }, [filteredHistory, validationHistory]);
 
   const fieldMetricColumns = [
     {
@@ -312,29 +412,41 @@ export default function Evaluation({ history, referenceEntries = [], onRefresh, 
   const interventionCards = [
     {
       label: "Most accepted task",
-      value: metrics.mostAcceptedTask ? `${metrics.mostAcceptedTask.label} (${metrics.mostAcceptedTask.accepted})` : "Not available",
+      value: metrics.mostAcceptedTask
+        ? `${metrics.mostAcceptedTask.label} (${metrics.mostAcceptedTask.accepted})`
+        : "Not available",
     },
     {
       label: "Most modified task",
-      value: metrics.mostModifiedTask ? `${metrics.mostModifiedTask.label} (${metrics.mostModifiedTask.modified})` : "Not available",
+      value: metrics.mostModifiedTask
+        ? `${metrics.mostModifiedTask.label} (${metrics.mostModifiedTask.modified})`
+        : "Not available",
     },
     {
       label: "Most rejected task",
-      value: metrics.mostRejectedTask ? `${metrics.mostRejectedTask.label} (${metrics.mostRejectedTask.rejected})` : "Not available",
+      value: metrics.mostRejectedTask
+        ? `${metrics.mostRejectedTask.label} (${metrics.mostRejectedTask.rejected})`
+        : "Not available",
     },
     {
       label: "Highest human agreement task",
-      value: metrics.highestAgreementTask ? `${metrics.highestAgreementTask.label} (${formatPercent(metrics.highestAgreementTask.agreementRate)})` : "Not available",
+      value: metrics.highestAgreementTask
+        ? `${metrics.highestAgreementTask.label} (${formatPercent(metrics.highestAgreementTask.agreementRate)})`
+        : "Not available",
     },
     {
       label: "Lowest human agreement task",
-      value: metrics.lowestAgreementTask ? `${metrics.lowestAgreementTask.label} (${formatPercent(metrics.lowestAgreementTask.agreementRate)})` : "Not available",
+      value: metrics.lowestAgreementTask
+        ? `${metrics.lowestAgreementTask.label} (${formatPercent(metrics.lowestAgreementTask.agreementRate)})`
+        : "Not available",
     },
   ];
+
   const referenceComparison = useMemo(
     () => buildReferenceComparison(filteredReferenceEntries, filteredHistory),
     [filteredReferenceEntries, filteredHistory]
   );
+
   const referenceRows = [
     {
       metric: "Linked reference entries",
@@ -379,7 +491,10 @@ export default function Evaluation({ history, referenceEntries = [], onRefresh, 
         <div>
           <span className="module-kicker">Evaluation</span>
           <h2>Human-in-the-Loop Evaluation Metrics</h2>
-          <p>Research-focused metrics measuring how often LLM-generated requirements analysis outputs were accepted, modified, or rejected by human reviewers.</p>
+          <p>
+            Research-focused metrics measuring how often LLM-generated requirements analysis outputs were accepted,
+            modified, or rejected by human reviewers.
+          </p>
         </div>
       </div>
 
@@ -389,7 +504,9 @@ export default function Evaluation({ history, referenceEntries = [], onRefresh, 
           <select className="project-select" value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)}>
             <option value="">All projects</option>
             {projects.map((project) => (
-              <option key={project.id} value={project.id}>{project.name}</option>
+              <option key={project.id} value={project.id}>
+                {project.name}
+              </option>
             ))}
           </select>
         </label>
@@ -398,7 +515,10 @@ export default function Evaluation({ history, referenceEntries = [], onRefresh, 
       {!filteredReferenceEntries.length && metrics.totalAnalysed > 0 && (
         <div className="workflow-note-card">
           <strong>Reference comparison is optional</strong>
-          <p>No manually labelled reference dataset has been added yet. Human validation evidence is available, but gold-standard comparison requires manual reference labels.</p>
+          <p>
+            No manually labelled reference dataset has been added yet. Human validation evidence is available, but
+            gold-standard comparison requires manual reference labels.
+          </p>
         </div>
       )}
 
@@ -410,14 +530,59 @@ export default function Evaluation({ history, referenceEntries = [], onRefresh, 
       ) : (
         <>
           <div className="evaluation-grid evaluation-grid-wide">
-            <div className="metric-card"><span>Total requirements analysed</span><strong>{metrics.totalAnalysed}</strong><p>All analysed requirements in the selected scope.</p></div>
-            <div className="metric-card"><span>Human reviewed count</span><strong>{metrics.reviewedCount}</strong><p>Accepted, modified, or rejected by a reviewer.</p></div>
-            <div className="metric-card"><span>Pending review count</span><strong>{metrics.pendingCount}</strong><p>Analysed items still awaiting human validation.</p></div>
-            <div className="metric-card"><span>Human review rate</span><strong>{formatPercent(metrics.reviewRate)}</strong><p>Reviewed divided by total analysed.</p></div>
-            <div className="metric-card"><span>Overall acceptance rate</span><strong>{formatCountRate(metrics.acceptedCount, metrics.reviewedCount)}</strong><p>Accepted divided by reviewed items.</p></div>
-            <div className="metric-card"><span>Overall modification rate</span><strong>{formatCountRate(metrics.modifiedCount, metrics.reviewedCount)}</strong><p>Modified divided by reviewed items.</p></div>
-            <div className="metric-card"><span>Overall rejection rate</span><strong>{formatCountRate(metrics.rejectedCount, metrics.reviewedCount)}</strong><p>Rejected divided by reviewed items.</p></div>
-            <div className="metric-card"><span>Average LLM confidence</span><strong>{formatPercent(metrics.averageConfidence)}</strong><p>Mean model confidence across analysed items.</p></div>
+            <div className="metric-card">
+              <span>Total analysed records</span>
+              <strong>{metrics.totalAnalysed}</strong>
+              <p>All LLM analysis records, including modified re-analysis outputs.</p>
+            </div>
+
+            <div className="metric-card">
+              <span>Validation items</span>
+              <strong>{metrics.totalValidationItems}</strong>
+              <p>Original reviewer-facing requirements in the selected scope.</p>
+            </div>
+
+            <div className="metric-card">
+              <span>Human reviewed count</span>
+              <strong>{metrics.reviewedCount}</strong>
+              <p>Accepted, modified, or rejected by a reviewer.</p>
+            </div>
+
+            <div className="metric-card">
+              <span>Pending review count</span>
+              <strong>{metrics.pendingCount}</strong>
+              <p>Reviewer-facing items still awaiting human validation.</p>
+            </div>
+
+            <div className="metric-card">
+              <span>Human review rate</span>
+              <strong>{formatPercent(metrics.reviewRate)}</strong>
+              <p>Reviewed divided by reviewer-facing validation items.</p>
+            </div>
+
+            <div className="metric-card">
+              <span>Overall acceptance rate</span>
+              <strong>{formatCountRate(metrics.acceptedCount, metrics.reviewedCount)}</strong>
+              <p>Accepted divided by reviewed items.</p>
+            </div>
+
+            <div className="metric-card">
+              <span>Overall modification rate</span>
+              <strong>{formatCountRate(metrics.modifiedCount, metrics.reviewedCount)}</strong>
+              <p>Modified divided by reviewed items.</p>
+            </div>
+
+            <div className="metric-card">
+              <span>Overall rejection rate</span>
+              <strong>{formatCountRate(metrics.rejectedCount, metrics.reviewedCount)}</strong>
+              <p>Rejected divided by reviewed items.</p>
+            </div>
+
+            <div className="metric-card">
+              <span>Average LLM confidence</span>
+              <strong>{formatPercent(metrics.averageConfidence)}</strong>
+              <p>Mean model confidence across analysed records.</p>
+            </div>
           </div>
 
           {metrics.reviewedCount === 0 ? (
@@ -431,9 +596,13 @@ export default function Evaluation({ history, referenceEntries = [], onRefresh, 
                 <div className="page-card-header">
                   <div>
                     <h2>Field-Level Evaluation Metrics</h2>
-                    <p>Agreement and intervention rates for each Requirements Engineering output using recorded field-level validation decisions.</p>
+                    <p>
+                      Agreement and intervention rates for each Requirements Engineering output using recorded
+                      field-level validation decisions.
+                    </p>
                   </div>
                 </div>
+
                 <AppDataTable
                   columns={fieldMetricColumns}
                   rows={metrics.fieldSummaries}
@@ -454,6 +623,7 @@ export default function Evaluation({ history, referenceEntries = [], onRefresh, 
                     <p>Which Requirements Engineering tasks needed the most reviewer intervention in the selected data.</p>
                   </div>
                 </div>
+
                 <div className="evaluation-grid">
                   {interventionCards.map((card) => (
                     <div key={card.label} className="metric-card">
@@ -471,10 +641,25 @@ export default function Evaluation({ history, referenceEntries = [], onRefresh, 
                     <p>Average model confidence grouped by the final human review outcome.</p>
                   </div>
                 </div>
+
                 <div className="evaluation-grid">
-                  <div className="metric-card"><span>Accepted items</span><strong>{metrics.acceptedConfidence}</strong><p>Average confidence where outputs were accepted.</p></div>
-                  <div className="metric-card"><span>Modified items</span><strong>{metrics.modifiedConfidence}</strong><p>Average confidence where outputs needed reviewer changes.</p></div>
-                  <div className="metric-card"><span>Rejected items</span><strong>{metrics.rejectedConfidence}</strong><p>Average confidence where outputs were rejected.</p></div>
+                  <div className="metric-card">
+                    <span>Accepted items</span>
+                    <strong>{metrics.acceptedConfidence}</strong>
+                    <p>Average confidence where outputs were accepted.</p>
+                  </div>
+
+                  <div className="metric-card">
+                    <span>Modified items</span>
+                    <strong>{metrics.modifiedConfidence}</strong>
+                    <p>Average confidence where outputs needed reviewer changes.</p>
+                  </div>
+
+                  <div className="metric-card">
+                    <span>Rejected items</span>
+                    <strong>{metrics.rejectedConfidence}</strong>
+                    <p>Average confidence where outputs were rejected.</p>
+                  </div>
                 </div>
               </div>
 
@@ -491,6 +676,7 @@ export default function Evaluation({ history, referenceEntries = [], onRefresh, 
                       <p>These metrics are calculated only for requirements linked to manually labelled reference data.</p>
                     </div>
                   </div>
+
                   <AppDataTable
                     columns={completenessColumns}
                     rows={referenceRows}
@@ -514,6 +700,7 @@ export default function Evaluation({ history, referenceEntries = [], onRefresh, 
                 <p>Secondary coverage indicators showing whether the LLM produced each output type.</p>
               </div>
             </div>
+
             <AppDataTable
               columns={completenessColumns}
               rows={completenessRows}

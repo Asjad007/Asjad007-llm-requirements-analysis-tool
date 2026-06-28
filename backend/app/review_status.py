@@ -1,4 +1,5 @@
 from fastapi import HTTPException
+from typing import Optional
 
 
 REVIEW_STATUSES = {
@@ -20,16 +21,16 @@ _REVIEW_STATUS_MAP = {
     "rejected": REVIEW_STATUSES["REJECTED"],
 }
 
+def normalize_review_status(value: Optional[str]) -> str:
 
-def normalize_review_status(value: str | None) -> str:
     if not value:
         return REVIEW_STATUSES["PENDING"]
 
     normalized_key = str(value).strip().lower()
     return _REVIEW_STATUS_MAP.get(normalized_key, REVIEW_STATUSES["PENDING"])
 
+def normalize_review_status_or_raise(value: Optional[str]) -> str:
 
-def normalize_review_status_or_raise(value: str | None) -> str:
     if not value:
         raise HTTPException(status_code=400, detail="Review decision is required")
 
