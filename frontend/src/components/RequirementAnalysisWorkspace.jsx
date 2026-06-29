@@ -74,12 +74,18 @@ export default function RequirementAnalysisWorkspace({
   onOpenModify,
   onOpenReject,
   actionLoading,
+  closeLabel = "Back to Repository",
 }) {
   const [activeTab, setActiveTab] = useState("overview");
+  const [isUpdateMode, setIsUpdateMode] = useState(false);
 
   useEffect(() => {
     setActiveTab("overview");
   }, [item?.analysis_id]);
+
+  useEffect(() => {
+    setIsUpdateMode(false);
+  }, [item?.analysis_id, item?.review_decision, item?.reviewed_at, item?.review_updated_at]);
 
   const reviewDecision = useMemo(
     () => normalizeReviewStatus(item?.review_decision),
@@ -94,8 +100,11 @@ export default function RequirementAnalysisWorkspace({
 
   const hasFinalOutput = reviewDecision === REVIEW_STATUSES.ACCEPTED || reviewDecision === REVIEW_STATUSES.MODIFIED;
   const isPending = reviewDecision === REVIEW_STATUSES.PENDING;
+  const canEditRecordedDecision = !isPending && isUpdateMode;
   const isReviewing = actionLoading.type === "review" && actionLoading.analysisId === item.analysis_id;
-  const isPreparingModify = actionLoading.type === "open-modify" && actionLoading.analysisId === item.analysis_id;
+  const isPreparingModify =
+    (actionLoading.type === "open-modify" || actionLoading.type === "modify") &&
+    actionLoading.analysisId === item.analysis_id;
   const tabs = [
     { id: "overview", label: "Overview" },
     { id: "analysis", label: "LLM Analysis" },
@@ -331,6 +340,7 @@ export default function RequirementAnalysisWorkspace({
               <FieldBlock label="Human Decision">
                 <span className={badgeClass(reviewDecision)}>{reviewDecision}</span>
               </FieldBlock>
+              <FieldBlock label="Reviewed Date/Time">{formatDate(item.reviewed_at || item.review_updated_at)}</FieldBlock>
               <div className="history-stack">
                 <span className={badgeClass(item.priority_level)}>{item.priority_level || "Priority N/A"}</span>
                 <span className={badgeClass(item.ambiguity_status)}>{item.ambiguity_status || "Ambiguity N/A"}</span>
@@ -340,37 +350,60 @@ export default function RequirementAnalysisWorkspace({
                   ? `${Math.round(Number(item.confidence_score) * 100)}%`
                   : "Confidence not available"}
               </FieldBlock>
+              <FieldBlock label={reviewDecision === REVIEW_STATUSES.REJECTED ? "Rejection Reason" : "Reviewer Notes"}>
+                {reviewDecision === REVIEW_STATUSES.REJECTED ? item.rejection_reason : item.reviewer_notes || item.review_notes}
+              </FieldBlock>
             </section>
 
             <section className="workspace-sidebar-card">
-              <h3>{isPending ? "Actions" : "Review Recorded"}</h3>
+              <div className="workspace-heading-row">
+                <h3>{isPending ? "Actions" : "Review Recorded"}</h3>
+                {!isPending && (
+                  <button
+                    type="button"
+                    className="workspace-edit-toggle"
+                    title="Update Review Decision"
+                    aria-label="Update Review Decision"
+                    disabled={isReviewing || isPreparingModify}
+                    onClick={() => setIsUpdateMode((previous) => !previous)}
+                  >
+                    <span aria-hidden="true">✎</span>
+                  </button>
+                )}
+              </div>
               <div className="workspace-action-column">
                 <button
                   className="success-button"
-                  disabled={!isPending || isReviewing || isPreparingModify}
+                  disabled={(!isPending && !canEditRecordedDecision) || isReviewing || isPreparingModify}
                   onClick={() => onAccept(item)}
                 >
                   {isReviewing ? "Saving..." : "Accept"}
                 </button>
                 <button
                   className="warning-button"
-                  disabled={!isPending || isReviewing || isPreparingModify}
+                  disabled={(!isPending && !canEditRecordedDecision) || isReviewing || isPreparingModify}
                   onClick={() => onOpenModify(item)}
                 >
                   {isPreparingModify ? "Opening..." : "Modify"}
                 </button>
                 <button
                   className="danger-button"
-                  disabled={!isPending || isReviewing || isPreparingModify}
+                  disabled={(!isPending && !canEditRecordedDecision) || isReviewing || isPreparingModify}
                   onClick={() => onOpenReject(item)}
                 >
                   {isReviewing ? "Saving..." : "Reject"}
                 </button>
                 <button className="secondary-button" onClick={onClose}>
-                  Back to Repository
+                  {closeLabel}
                 </button>
               </div>
-              {!isPending && <p className="history-subtext">This requirement already has a recorded human validation decision. Review actions are disabled to avoid confusion in the audit trail.</p>}
+              {isPending && <p className="history-subtext">Pending outputs are awaiting a recorded human validation decision.</p>}
+              {!isPending && !canEditRecordedDecision && (
+                <p className="history-subtext">This requirement already has a recorded human validation decision. Use the pencil icon to update the review decision intentionally.</p>
+              )}
+              {!isPending && canEditRecordedDecision && (
+                <p className="workspace-warning-note">You are updating an existing human validation decision. This will replace the current recorded decision.</p>
+              )}
             </section>
           </aside>
         </div>
