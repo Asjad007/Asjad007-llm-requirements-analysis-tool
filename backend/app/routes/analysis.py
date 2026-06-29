@@ -89,6 +89,7 @@ def serialise_field_level_decisions(field_level_decisions: Optional[Dict[str, st
 
 
 def build_analysis_response(requirement: Requirement, analysis_result: AnalysisResult) -> AnalysisResponse:
+    
     return AnalysisResponse(
         analysis_id=analysis_result.id,
         requirement_id=requirement.id,
