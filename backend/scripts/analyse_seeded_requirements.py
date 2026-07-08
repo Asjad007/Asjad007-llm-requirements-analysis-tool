@@ -54,7 +54,7 @@ def main():
             try:
 
                 result = analyse_requirement(
-                    requirement.original_text
+                    requirement.requirement_text
                 )
 
 
