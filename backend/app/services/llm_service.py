@@ -34,9 +34,6 @@ REQUIRED_FIELDS = {
 
 
 def _normalise_result(data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Ensure LLM output always contains required fields.
-    """
 
     if not isinstance(data, dict):
         data = {}
@@ -45,13 +42,40 @@ def _normalise_result(data: Dict[str, Any]) -> Dict[str, Any]:
         if key not in data or data[key] in [None, ""]:
             data[key] = default_value
 
+
+    # Convert LLM list/dict outputs into database-safe text
+    text_fields = [
+        "acceptance_criteria",
+        "test_case",
+        "improvement_suggestion",
+        "ambiguity_explanation",
+        "priority_reason",
+    ]
+
+    for field in text_fields:
+
+        if isinstance(data.get(field), list):
+            data[field] = "\n".join(
+                str(item)
+                for item in data[field]
+            )
+
+        elif isinstance(data.get(field), dict):
+            data[field] = json.dumps(data[field])
+
+
     try:
-        data["confidence_score"] = float(data["confidence_score"])
+        data["confidence_score"] = float(
+            data["confidence_score"]
+        )
+
     except Exception:
         data["confidence_score"] = 0.5
 
+
     if data["confidence_score"] > 1:
-        data["confidence_score"] = data["confidence_score"] / 100
+        data["confidence_score"] /= 100
+
 
     data["confidence_score"] = max(
         0.0,
