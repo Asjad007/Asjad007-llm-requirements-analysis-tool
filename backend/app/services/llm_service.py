@@ -277,7 +277,12 @@ def analyse_requirement(
     Both now work.
     """
 
-    return generate_analysis(
+    result = generate_analysis(
         requirement_text=requirement_text,
         project_context=project_context
     )
+
+    print("DEBUG LLM OUTPUT:")
+    print(result)
+
+    return result
