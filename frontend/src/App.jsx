@@ -11,7 +11,6 @@ import Validation from './pages/Validation';
 import Evaluation from './pages/Evaluation';
 import Reports from './pages/Reports';
 import ReferenceDataset from './pages/ReferenceDataset';
-import Settings from './pages/Settings';
 import { getHistory, getProjects, getReferenceDataset } from './services/api';
 import { REVIEW_STATUSES, isReviewedStatus, normalizeReviewStatus } from './utils/reviewStatuses';
 import './styles/main.css';
@@ -30,8 +29,7 @@ const MODULES = {
   history: 'Review History',
   evaluation: 'Human-in-the-Loop Evaluation Metrics',
   reference: 'Reference Dataset',
-  reports: 'Research Reports',
-  settings: 'Settings'
+  reports: 'Research Reports'
 };
 
 export default function App() {
@@ -236,8 +234,6 @@ export default function App() {
       return <Reports history={history} referenceEntries={referenceEntries} projects={projects} onRefresh={refreshAllData} />;
     }
 
-    if (activePage === 'settings') return <Settings />;
-
     return (
       <ModulePage
         moduleKey={activePage}
@@ -253,7 +249,7 @@ export default function App() {
     <div className="app-shell">
       <Sidebar activePage={activePage} onNavigate={handleNavigate} />
       <main className="main-area">
-        <Topbar title={pageTitle} onRefresh={refreshAllData} />
+        <Topbar title={pageTitle} />
         <div className="page-content page-content-shell">
           <GlobalLoader
             visible={isNavigationLoading}

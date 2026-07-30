@@ -32,8 +32,7 @@ export default function Validation({ history, stats, onRefresh }) {
 
         const analysisId = Number(item.analysis_id || item.id);
 
-        // Hide re-analysed child requirements created from a Modified review.
-        // They should appear as final outputs in Review History, not as new pending validation items.
+        // Refined child analyses remain history evidence rather than new review tasks.
         if (refinedAnalysisIds.has(analysisId)) {
           return false;
         }

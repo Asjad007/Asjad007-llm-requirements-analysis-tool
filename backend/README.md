@@ -1,22 +1,28 @@
-# Backend - FastAPI
+# FastAPI backend
 
-## Run
+## Setup
 
-```bash
+```powershell
 python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+Copy-Item .env.example .env
+python -m uvicorn app.main:app --reload
 ```
 
-API docs: `http://127.0.0.1:8000/docs`
+API documentation: `http://127.0.0.1:8000/docs`
 
-## Main Endpoints
+## Main endpoint groups
 
 - `GET /`
 - `GET /health`
-- `POST /api/analysis/analyse`
-- `POST /api/review/{analysis_id}`
-- `GET /api/history`
-- `GET /api/history/{analysis_id}`
-- `DELETE /api/history/{analysis_id}`
+- `/api/projects`
+- `/api/analysis`
+- `/api/history`
+- `/api/reference-dataset`
+
+Review submission is handled by
+`POST /api/analysis/review/{analysis_id}`.
+
+See the repository README for environment settings, mock/OpenAI behaviour,
+evaluation scripts, and project limitations.

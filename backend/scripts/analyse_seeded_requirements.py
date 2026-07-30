@@ -31,7 +31,6 @@ def main():
 
         for index, requirement in enumerate(requirements, start=1):
 
-            # avoid duplicate analysis
             existing = (
                 db.query(AnalysisResult)
                 .filter(

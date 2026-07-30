@@ -171,7 +171,7 @@ def main():
                 created += 1
 
 
-                # Save every 5 records
+                # Limit uncommitted provider results during long evaluation runs.
                 if created % 5 == 0:
 
                     db.commit()

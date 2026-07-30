@@ -32,13 +32,6 @@ class ModifyReanalyseRequest(BaseModel):
 
 
 def stringify_llm_field(value: Any) -> str:
-    """
-    Converts LLM output into a database-safe string.
-
-    The LLM may return lists or dictionaries for fields such as
-    acceptance_criteria or test_case, but SQLite text columns require
-    plain strings.
-    """
     if value is None:
         return ""
 
@@ -52,9 +45,6 @@ def stringify_llm_field(value: Any) -> str:
 
 
 def safe_confidence_score(value: Any) -> float:
-    """
-    Converts confidence_score into a safe float value.
-    """
     try:
         return float(value)
     except (TypeError, ValueError):

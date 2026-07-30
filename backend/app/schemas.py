@@ -86,7 +86,6 @@ class HistoryItem(BaseModel):
     test_case: Optional[str] = None
     confidence_score: Optional[float] = None
     improvement_suggestion: Optional[str] = None
-    review_decision: Optional[str] = None
     analysis_method: Optional[str] = None
     literature_basis: Optional[str] = None
 

@@ -43,7 +43,7 @@ def _normalise_result(data: Dict[str, Any]) -> Dict[str, Any]:
             data[key] = default_value
 
 
-    # Convert LLM list/dict outputs into database-safe text
+    # Preserve structured provider fields in text-backed database columns.
     text_fields = [
         "acceptance_criteria",
         "test_case",
@@ -205,7 +205,7 @@ Required JSON format:
         )
 
 
-        # Remove markdown JSON wrapper if returned
+        # Tolerate providers wrapping an otherwise valid JSON response.
         if content.startswith("```"):
 
             content = (
@@ -279,34 +279,12 @@ Required JSON format:
 
 
 
-# ==========================================================
-# COMPATIBILITY WRAPPER
-# Required by:
-# scripts/analyse_seeded_requirements.py
-# ==========================================================
-
 def analyse_requirement(
     requirement_text: str,
     project_context: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
-    """
-    Wrapper function for evaluation scripts.
-
-    Existing application uses:
-        generate_analysis()
-
-    Evaluation scripts use:
-        analyse_requirement()
-
-    Both now work.
-    """
-
-    result = generate_analysis(
+    """Compatibility entry point used by evaluation scripts."""
+    return generate_analysis(
         requirement_text=requirement_text,
         project_context=project_context
     )
-
-    print("DEBUG LLM OUTPUT:")
-    print(result)
-
-    return result

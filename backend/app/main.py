@@ -9,10 +9,6 @@ from .routes import analysis, history, projects, reference_dataset
 from app.startup import seed_database
 
 
-# ============================================================
-# DATABASE INITIALIZATION
-# ============================================================
-
 Base.metadata.create_all(bind=engine)
 
 
@@ -230,16 +226,9 @@ def ensure_reference_dataset_table():
 
 
 
-# Run database upgrades
 ensure_user_review_columns()
 ensure_project_tables_and_requirement_columns()
 ensure_reference_dataset_table()
-
-
-
-# ============================================================
-# FASTAPI APPLICATION
-# ============================================================
 
 app = FastAPI(
 
@@ -255,10 +244,6 @@ app = FastAPI(
 )
 
 
-
-# ============================================================
-# CORS
-# ============================================================
 
 app.add_middleware(
 
@@ -276,10 +261,6 @@ app.add_middleware(
 
 
 
-# ============================================================
-# STARTUP INITIALIZATION
-# ============================================================
-
 @app.on_event("startup")
 def startup_event():
 
@@ -295,10 +276,6 @@ def startup_event():
     seed_database()
 
 
-
-# ============================================================
-# ROUTERS
-# ============================================================
 
 app.include_router(
     analysis.router
@@ -317,10 +294,6 @@ app.include_router(
 )
 
 
-
-# ============================================================
-# BASIC ENDPOINTS
-# ============================================================
 
 @app.get("/")
 def root():
