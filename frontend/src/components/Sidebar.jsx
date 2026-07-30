@@ -18,7 +18,12 @@
   ]},
   { title: 'Evaluation', items: [
     { key: 'evaluation', label: 'Evaluation Metrics', icon: 'E' },
+    { key: 'reference', label: 'Reference Dataset', icon: 'G' },
+    { key: 'reports', label: 'Reports', icon: 'Rp' }
   ]},
+  { title: 'Other', items: [
+    { key: 'settings', label: 'Settings', icon: 'S' }
+  ]}
 ];
 
 export default function Sidebar({ activePage, onNavigate }) {

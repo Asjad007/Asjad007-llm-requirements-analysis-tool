@@ -11,6 +11,7 @@ import Validation from './pages/Validation';
 import Evaluation from './pages/Evaluation';
 import Reports from './pages/Reports';
 import ReferenceDataset from './pages/ReferenceDataset';
+import Settings from './pages/Settings';
 import { getHistory, getProjects, getReferenceDataset } from './services/api';
 import { REVIEW_STATUSES, isReviewedStatus, normalizeReviewStatus } from './utils/reviewStatuses';
 import './styles/main.css';
@@ -29,7 +30,8 @@ const MODULES = {
   history: 'Review History',
   evaluation: 'Human-in-the-Loop Evaluation Metrics',
   reference: 'Reference Dataset',
-  reports: 'Research Reports'
+  reports: 'Research Reports',
+  settings: 'Settings'
 };
 
 export default function App() {
@@ -233,6 +235,8 @@ export default function App() {
     if (activePage === 'reports') {
       return <Reports history={history} referenceEntries={referenceEntries} projects={projects} onRefresh={refreshAllData} />;
     }
+
+    if (activePage === 'settings') return <Settings />;
 
     return (
       <ModulePage
