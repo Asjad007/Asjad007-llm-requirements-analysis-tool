@@ -88,7 +88,6 @@ OPENAI_API_KEY=your-key
 OPENAI_MODEL=gpt-4o-mini
 ```
 
-Do not commit `.env` or API keys.
 
 ## Frontend setup
 
