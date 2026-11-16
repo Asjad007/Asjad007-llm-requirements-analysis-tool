@@ -10,6 +10,55 @@ The tool is intended as decision support. Generated analysis should not be
 treated as verified requirements-engineering evidence until it has been reviewed
 by a human.
 
+![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/React-Vite-61DAFB?logo=react&logoColor=black)
+![SQLite](https://img.shields.io/badge/SQLite-003B57?logo=sqlite&logoColor=white)
+![LLM](https://img.shields.io/badge/LLM-OpenAI%20%7C%20Mock-412991)
+
+![Dashboard](docs/screenshots/01-dashboard.png)
+
+---
+
+## Key Features
+
+- **Project-based workflow** – organise requirements per project, with manual entry or PDF/DOCX upload.
+- **Automated analysis** – classification (functional / non-functional), prioritisation and confidence scoring.
+- **Ambiguity detection** – flags vague or untestable wording in requirements.
+- **Generated artefacts** – draft acceptance criteria and test cases for each requirement.
+- **Human-in-the-loop review** – accept, modify or reject every LLM output, with full review history.
+- **Evaluation metrics** – acceptance, modification and rejection rates, plus average model confidence.
+- **Reference dataset and reports** – reproducible evaluation data and research-oriented reporting.
+- **Pluggable LLM provider** – runs offline with a mock provider, or with OpenAI via a single setting.
+
+---
+
+## Screenshots
+
+### Requirements Repository
+![Requirements](docs/screenshots/03-requirements.png)
+
+### Classification
+![Classification](docs/screenshots/04-classification.png)
+
+### Ambiguity Detection
+![Ambiguity Detection](docs/screenshots/06-ambiguity.png)
+
+### Acceptance Criteria
+![Acceptance Criteria](docs/screenshots/07-acceptance-criteria.png)
+
+### Test Case Generation
+![Test Case Generation](docs/screenshots/08-test-cases.png)
+
+### Human-in-the-Loop Evaluation Metrics
+![Evaluation Metrics](docs/screenshots/10-evaluation-metrics.png)
+
+### Reference Dataset
+![Reference Dataset](docs/screenshots/11-reference-dataset.png)
+
+### Research Reports
+![Reports](docs/screenshots/12-reports.png)
+
 ---
 
 ## Technology
