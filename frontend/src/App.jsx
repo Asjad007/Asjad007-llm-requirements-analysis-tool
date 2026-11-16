@@ -253,7 +253,7 @@ export default function App() {
     <div className="app-shell">
       <Sidebar activePage={activePage} onNavigate={handleNavigate} />
       <main className="main-area">
-        <Topbar title={pageTitle} onRefresh={refreshAllData} />
+        <Topbar title={pageTitle} />
         <div className="page-content page-content-shell">
           <GlobalLoader
             visible={isNavigationLoading}

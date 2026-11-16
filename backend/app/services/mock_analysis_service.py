@@ -1,10 +1,4 @@
-"""
-Mock analysis service for the literature-backed MVP.
-
-This service simulates a prompt-engineered LLM-assisted requirements
-engineering workflow. It is deterministic for MVP demonstration, but the
-output structure matches the intended real LLM JSON response.
-"""
+"""Deterministic analysis service matching the provider response schema."""
 
 from typing import Dict
 
@@ -107,6 +101,5 @@ def analyse_requirement_with_mock_llm(requirement_text: str) -> Dict:
     }
 
 
-# Backward-compatible function name
 def analyse_requirement(requirement_text: str) -> Dict:
     return analyse_requirement_with_mock_llm(requirement_text)

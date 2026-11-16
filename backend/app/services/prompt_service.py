@@ -1,4 +1,6 @@
-def build_requirements_analysis_prompt(requirement_text: str, project_context: dict | None = None) -> str:
+from typing import Optional
+def build_requirements_analysis_prompt(requirement_text: str, project_context: Optional[dict] = None) -> str:
+ 
     project_name = (project_context or {}).get("name") or "Not provided"
     project_description = (project_context or {}).get("description") or "Not provided"
     domain_system_type = (project_context or {}).get("domain_system_type") or "Not provided"

@@ -1,5 +1,4 @@
-﻿from typing import List, Optional
-
+﻿from typing import List, Optional, Dict, Any
 import json
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -32,7 +31,27 @@ class ModifyReanalyseRequest(BaseModel):
     reviewer_notes: Optional[str] = None
 
 
-def run_llm_or_mock(requirement_text: str, project_context: dict | None = None):
+def stringify_llm_field(value: Any) -> str:
+    if value is None:
+        return ""
+
+    if isinstance(value, list):
+        return "\n".join(str(item) for item in value)
+
+    if isinstance(value, dict):
+        return "\n".join(f"{key}: {val}" for key, val in value.items())
+
+    return str(value)
+
+
+def safe_confidence_score(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.5
+
+
+def run_llm_or_mock(requirement_text: str, project_context: Optional[dict] = None):
     if settings.USE_MOCK_LLM:
         return mock_analyse(requirement_text)
 
@@ -43,11 +62,11 @@ def build_default_field_level_decisions(decision: str):
     return {key: decision for key in FIELD_LEVEL_KEYS}
 
 
-def serialise_field_level_decisions(field_level_decisions: dict[str, str] | None):
+def serialise_field_level_decisions(field_level_decisions: Optional[Dict[str, str]]):
     if not field_level_decisions:
         return None
 
-    cleaned: dict[str, str] = {}
+    cleaned: Dict[str, str] = {}
 
     for key in FIELD_LEVEL_KEYS:
         value = field_level_decisions.get(key) if isinstance(field_level_decisions, dict) else None
@@ -60,6 +79,7 @@ def serialise_field_level_decisions(field_level_decisions: dict[str, str] | None
 
 
 def build_analysis_response(requirement: Requirement, analysis_result: AnalysisResult) -> AnalysisResponse:
+    
     return AnalysisResponse(
         analysis_id=analysis_result.id,
         requirement_id=requirement.id,
@@ -109,17 +129,17 @@ def analyse_and_save_requirement(
 
     analysis_result = AnalysisResult(
         requirement_id=requirement.id,
-        requirement_type=analysis_output.get("requirement_type", "Unclear"),
-        ambiguity_status=analysis_output.get("ambiguity_status", "Ambiguous"),
-        ambiguity_explanation=analysis_output.get("ambiguity_explanation", ""),
-        priority_level=analysis_output.get("priority_level", "Medium"),
-        priority_reason=analysis_output.get("priority_reason", ""),
-        acceptance_criteria=analysis_output.get("acceptance_criteria", ""),
-        test_case=analysis_output.get("test_case", ""),
-        improvement_suggestion=analysis_output.get("improvement_suggestion", ""),
-        confidence_score=analysis_output.get("confidence_score", 0.5),
-        analysis_method=analysis_output.get("analysis_method", ""),
-        literature_basis=analysis_output.get("literature_basis", ""),
+        requirement_type=stringify_llm_field(analysis_output.get("requirement_type", "Unclear")),
+        ambiguity_status=stringify_llm_field(analysis_output.get("ambiguity_status", "Ambiguous")),
+        ambiguity_explanation=stringify_llm_field(analysis_output.get("ambiguity_explanation", "")),
+        priority_level=stringify_llm_field(analysis_output.get("priority_level", "Medium")),
+        priority_reason=stringify_llm_field(analysis_output.get("priority_reason", "")),
+        acceptance_criteria=stringify_llm_field(analysis_output.get("acceptance_criteria", "")),
+        test_case=stringify_llm_field(analysis_output.get("test_case", "")),
+        improvement_suggestion=stringify_llm_field(analysis_output.get("improvement_suggestion", "")),
+        confidence_score=safe_confidence_score(analysis_output.get("confidence_score", 0.5)),
+        analysis_method=stringify_llm_field(analysis_output.get("analysis_method", "")),
+        literature_basis=stringify_llm_field(analysis_output.get("literature_basis", "")),
     )
 
     db.add(analysis_result)
@@ -289,7 +309,9 @@ def review_analysis_result(
 
     normalised_decision = normalize_review_status_or_raise(payload.decision)
 
-    if normalised_decision == REVIEW_STATUSES["REJECTED"] and not (payload.rejection_reason and payload.rejection_reason.strip()):
+    if normalised_decision == REVIEW_STATUSES["REJECTED"] and not (
+        payload.rejection_reason and payload.rejection_reason.strip()
+    ):
         raise HTTPException(status_code=400, detail="Rejection reason is required")
 
     final_fields = {}
@@ -301,20 +323,23 @@ def review_analysis_result(
             analysis_result,
         )
         field_level_decisions = build_default_field_level_decisions(REVIEW_STATUSES["ACCEPTED"])
+
     elif normalised_decision == REVIEW_STATUSES["MODIFIED"]:
         if not payload.final_refined_requirement or not payload.final_refined_requirement.strip():
             raise HTTPException(status_code=400, detail="Final refined requirement is required for modified reviews")
 
         final_fields = {
-            "final_refined_requirement": payload.final_refined_requirement.strip(),
-            "final_type": payload.final_type,
-            "final_priority": payload.final_priority,
-            "final_ambiguity_status": payload.final_ambiguity_status,
-            "final_acceptance_criteria": payload.final_acceptance_criteria,
-            "final_test_cases": payload.final_test_cases,
+            "final_refined_requirement": stringify_llm_field(payload.final_refined_requirement.strip()),
+            "final_type": stringify_llm_field(payload.final_type),
+            "final_priority": stringify_llm_field(payload.final_priority),
+            "final_ambiguity_status": stringify_llm_field(payload.final_ambiguity_status),
+            "final_acceptance_criteria": stringify_llm_field(payload.final_acceptance_criteria),
+            "final_test_cases": stringify_llm_field(payload.final_test_cases),
         }
+
         if not field_level_decisions:
             field_level_decisions = build_default_field_level_decisions(REVIEW_STATUSES["ACCEPTED"])
+
     elif normalised_decision == REVIEW_STATUSES["REJECTED"] and not field_level_decisions:
         field_level_decisions = build_default_field_level_decisions(REVIEW_STATUSES["REJECTED"])
 
@@ -359,10 +384,10 @@ def review_analysis_result(
 
 def build_final_review_fields(requirement_text: str, analysis_result: AnalysisResult):
     return {
-        "final_refined_requirement": requirement_text,
-        "final_type": analysis_result.requirement_type,
-        "final_priority": analysis_result.priority_level,
-        "final_ambiguity_status": analysis_result.ambiguity_status,
-        "final_acceptance_criteria": analysis_result.acceptance_criteria,
-        "final_test_cases": analysis_result.test_case,
+        "final_refined_requirement": stringify_llm_field(requirement_text),
+        "final_type": stringify_llm_field(analysis_result.requirement_type),
+        "final_priority": stringify_llm_field(analysis_result.priority_level),
+        "final_ambiguity_status": stringify_llm_field(analysis_result.ambiguity_status),
+        "final_acceptance_criteria": stringify_llm_field(analysis_result.acceptance_criteria),
+        "final_test_cases": stringify_llm_field(analysis_result.test_case),
     }

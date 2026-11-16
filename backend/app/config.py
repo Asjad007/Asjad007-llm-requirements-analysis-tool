@@ -2,8 +2,6 @@ import os
 from dotenv import load_dotenv, find_dotenv
 
 env_path = find_dotenv(".env")
-print("Loading env from:", env_path)
-
 load_dotenv()
 
 class Settings:
