@@ -10,6 +10,83 @@ The tool is intended as decision support. Generated analysis should not be
 treated as verified requirements-engineering evidence until it has been reviewed
 by a human.
 
+## About the Project
+
+### The problem
+Requirements engineering is slow and error-prone. Analysts read through large
+sets of natural-language requirements and must decide, for each one, whether it
+is functional or non-functional, how important it is, whether the wording is
+ambiguous or untestable, and how it will be verified. Mistakes made at this
+stage are expensive because they carry into design, implementation and testing.
+
+### What this tool does
+This tool uses a Large Language Model (LLM) to do the first pass of that
+analysis, and keeps a human reviewer in control of the result. For every
+requirement it produces:
+
+| Output | Description |
+|---|---|
+| **Classification** | Functional vs. non-functional, with a confidence score |
+| **Priority** | High / Medium / Low suggestion with reasoning |
+| **Ambiguity check** | Highlights vague terms and explains why they are risky |
+| **Acceptance criteria** | Draft, testable conditions for the requirement |
+| **Test case** | A draft test case derived from the requirement |
+
+A reviewer then **accepts, modifies or rejects** each output. Every decision is
+stored, so the tool can report how often the LLM was right, how often it needed
+correction, and how confident it was.
+
+### Why it matters (research context)
+The project was built for an MSc Software Engineering dissertation that asks:
+*how useful and trustworthy is LLM output for requirements analysis when a human
+stays in the loop?* The acceptance / modification / rejection rates recorded by
+the tool are the evidence used to answer that question. The tool is decision
+support, not an automatic replacement for a requirements engineer.
+
+### How it works
+
+```text
+Requirement input (manual / PDF / DOCX)
+        ↓
+Extraction and pre-processing
+        ↓
+LLM analysis (OpenAI or offline mock provider)
+        ↓
+Structured result: class, priority, ambiguity, criteria, test case
+        ↓
+Human review: Accept / Modify / Reject
+        ↓
+SQLite storage → History → Evaluation metrics → Reports
+```
+
+### Architecture
+Three layers:
+1. **Presentation** – React + Vite single-page app (dashboard, repository,
+   analysis views, validation, metrics, reports).
+2. **Application** – FastAPI backend with routes for projects, analysis,
+   history and the reference dataset, plus services for document extraction,
+   prompt building and LLM calls.
+3. **Data** – SQLite via SQLAlchemy.
+
+The LLM layer is swappable: a deterministic **mock provider** lets anyone run
+the whole system with no API key, and an **OpenAI provider** is enabled with
+two environment variables.
+
+### Evaluation data
+The bundled database contains **25 synthetic projects and 250 requirements**
+across different domains, all analysed and reviewed. In that dataset 66% of
+outputs were accepted as-is and 34% were modified, with an average model
+confidence of 87%. Review decisions were simulated by rule-based scripts, so
+these figures demonstrate the metric pipeline and are **not** an independent
+human study (see [Limitations](#limitations)).
+
+### What this project demonstrates
+Full-stack development (React, FastAPI, SQLAlchemy), LLM integration and prompt
+design, document parsing (PDF/DOCX), human-in-the-loop system design, and
+evaluation methodology for AI-assisted tooling.
+
+---
+
 ![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
 ![React](https://img.shields.io/badge/React-Vite-61DAFB?logo=react&logoColor=black)
